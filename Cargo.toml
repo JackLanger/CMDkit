@@ -7,6 +7,10 @@ license = "GPL-3.0-or-later"
 repository = "https://github.com/JackLanger/Cli-Core.git"
 readme = "README.md"
 
+[[bin]]
+name = "wrapper_probe"
+path = "tests/bin/wrapper_probe.rs"
+
 
 [dependencies]
 functionality_macro = { path = "functionality_macro" }
