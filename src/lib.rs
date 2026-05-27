@@ -6,6 +6,7 @@ pub mod core;
 
 pub use cli::{CLIStrategy, Functionality, StrategyError, StrategyErrorKind};
 pub use core::{CliCore, CliCoreError};
+pub use functionality_macro::functionality;
 
 /// Runs the default global [`CliCore`] instance with project initializers.
 ///
@@ -21,4 +22,8 @@ pub fn try_run_with_initializers(
     initializers: &[fn() -> Functionality],
 ) -> Result<(), CliCoreError> {
     core::try_run_with_initializers(initializers)
+}
+
+pub fn init() -> CliCore {
+    CliCore::new()
 }

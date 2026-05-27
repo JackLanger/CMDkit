@@ -1,4 +1,3 @@
-pub(crate) mod help;
 use std::{collections::BTreeMap, error::Error, fmt, sync::Arc};
 
 /// Categorizes strategy failures for downstream error handling.
@@ -70,8 +69,6 @@ pub trait CLIStrategy: Send + Sync {
     /// Executes the strategy with command-specific arguments.
     /// Strategy implementations should validate argument viability internally.
     fn execute(&self, args: Vec<String>) -> Result<(), StrategyError>;
-    /// Provides help information for the strategy.
-    fn help(&self) -> String;
 }
 
 /// Metadata + behavior pair for a single command.

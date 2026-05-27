@@ -20,20 +20,12 @@ impl CLIStrategy for TestStrategy {
         println!("Test strategy executed");
         Ok(())
     }
-
-    fn help(&self) -> String {
-        "Test strategy help".to_string()
-    }
 }
 
 impl CLIStrategy for TestStrategyV2 {
     fn execute(&self, _args: Vec<String>) -> Result<(), StrategyError> {
         println!("Test strategy v2 executed");
         Ok(())
-    }
-
-    fn help(&self) -> String {
-        "Test strategy v2 help".to_string()
     }
 }
 
@@ -79,20 +71,6 @@ fn test_non_existent() {
 }
 
 #[test]
-fn test_help_strategy() {
-    let core = CliCore::new();
-    let help_strategy = core
-        .get("help")
-        .expect("Help strategy should be registered");
-    assert_eq!(help_strategy.name, "help");
-    assert_eq!(help_strategy.description, "Display help information");
-    let help_output = help_strategy.strategy.help();
-    assert!(help_output.contains("Usage:"));
-    assert!(help_output.contains("supported commands:"));
-    assert!(help_output.contains("- help: Display help information"));
-}
-
-#[test]
 fn test_register_duplicate_name_overwrites() {
     let core = CliCore::new();
     let name = unique_name("duplicate");
@@ -111,7 +89,6 @@ fn test_register_duplicate_name_overwrites() {
 
     let retrieved = core.get(&name).expect("Functionality should be registered");
     assert_eq!(retrieved.description, "updated");
-    assert_eq!(retrieved.strategy.help(), "Test strategy v2 help");
 }
 
 #[test]

@@ -1,0 +1,56 @@
+CLI-Core Architecture TODO
+
+Priority legend:
+- P1 = High priority (fix soon)
+- P2 = Medium priority
+- P3 = Low priority
+
+P1
+[x] Remove shared-runtime coupling from root-level wrappers.
+    - Status: done. global_core was removed and wrappers now instantiate fresh CliCore runtimes per call.
+    - Scope: src/core.rs wrapper functions + root wrappers in src/lib.rs.
+    - Acceptance met: no shared process-global runtime is used for wrapper execution.
+
+P2
+[x] Decouple help binary name from process env args when running explicit arg dispatch.
+    - Status: done. help text is now generated from the caller-provided argv context and static help rendering.
+    - Scope: src/cli/help.rs + call path from src/core.rs try_run_from_args.
+    - Acceptance met: help text for explicit-args execution reflects provided argv context.
+
+[x] Relax initializer contract to support fallible and configurable registration.
+    - Status: done via closure-based initializer API.
+    - Scope: src/core.rs run_with_initializers/try_run_with_initializers APIs.
+    - Acceptance met: supports closure-based registration (`F: Fn() -> Functionality`) and chained registration via `register` returning self.
+
+[x] Add tests for wrapper/global behavior.
+    - Status: done. Added subprocess-based coverage that exercises root wrappers repeatedly and verifies no state is shared across calls.
+    - Scope: tests/ dedicated wrapper behavior coverage + helper binary for probe execution.
+    - Acceptance met: tests demonstrate and lock expected semantics across repeated calls.
+
+P3
+[ ] Revisit public visibility of FunctionalityRegistry methods and type purpose.
+    - Problem: type is public but core methods are crate-private, which is confusing as public API.
+    - Scope: src/cli.rs FunctionalityRegistry.
+    - Acceptance: either
+      1) make registry fully internal, or
+      2) expose a coherent public API with docs and tests.
+
+[ ] Decide and document lock-poisoning policy.
+    - Problem: current approach recovers from poison silently via into_inner().
+    - Scope: src/core.rs and src/cli/help.rs lock handling.
+    - Acceptance: explicit policy documented and reflected consistently in code (recover, surface error, or fail fast).
+
+[ ] Add explicit test for help text behavior in try_run_from_args context.
+    - Problem: current tests do not validate how binary name/help behaves under explicit args.
+    - Scope: tests/clicore_suite.rs
+    - Acceptance: a dedicated test covers help/usage output source behavior.
+
+[ ] Allow for nested Function so that CLIStrategies can hold other Strategies.
+    - Problem currently you can not register CLI Strategies as sub strategies of other stratgies without code duplication
+    - Scope: src/cli.rs src/core.rs tests/
+    - Acceptance CLI Strategies can be nested and can produce a path name for the caller id
+        e.g. cli-core test all 
+
+[ ] Allow for options and flags being passed to further alter the functionality of the CLI
+    
+

@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    process::Command,
+    sync::{Arc, Mutex},
+};
 
 use cli_core::{
     CLIStrategy, CliCore, CliCoreError, Functionality, StrategyError, StrategyErrorKind,
@@ -20,10 +23,6 @@ impl CLIStrategy for RecorderStrategy {
 
         Ok(())
     }
-
-    fn help(&self) -> String {
-        "recorder strategy".to_string()
-    }
 }
 
 fn build_recorder_functionality(
@@ -37,16 +36,6 @@ fn build_recorder_functionality(
         description: description.to_string(),
         strategy: Arc::new(RecorderStrategy { calls, error }),
     }
-}
-
-#[test]
-fn help_is_registered_by_default() {
-    let core = CliCore::new();
-    let help = core.get("help").expect("help functionality should exist");
-
-    assert_eq!(help.name, "help");
-    assert_eq!(help.description, "Display help information");
-    assert!(help.strategy.help().contains("supported commands:"));
 }
 
 #[test]
@@ -191,4 +180,32 @@ fn independent_instances_do_not_share_registry_entries() {
 
     assert!(core_a.get("isolated").is_some());
     assert!(core_b.get("isolated").is_none());
+}
+
+#[test]
+fn wrapper_calls_do_not_share_runtime_state() {
+    let binary = std::env::var("CARGO_BIN_EXE_wrapper_probe")
+        .expect("wrapper_probe binary should be built by cargo test");
+
+    let output = Command::new(binary)
+        .arg("help")
+        .output()
+        .expect("wrapper_probe should run successfully");
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be valid utf-8");
+    let first_section = stdout
+        .split("--SECOND--")
+        .next()
+        .expect("first section should exist");
+    let second_section = stdout
+        .split("--SECOND--")
+        .nth(1)
+        .expect("second section should exist");
+
+    assert!(first_section.contains("alpha command"));
+    assert!(!first_section.contains("beta command"));
+    assert!(second_section.contains("beta command"));
+    assert!(!second_section.contains("alpha command"));
 }

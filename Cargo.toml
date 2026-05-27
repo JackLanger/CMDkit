@@ -9,3 +9,4 @@ readme = "README.md"
 
 
 [dependencies]
+functionality_macro = { path = "functionality_macro" }

@@ -4,10 +4,36 @@ use std::{
     sync::{Arc, OnceLock, RwLock},
 };
 
-use crate::{
-    Functionality, StrategyError,
-    cli::{FunctionalityRegistry, help::build_help_functionality},
-};
+use crate::{Functionality, StrategyError, cli::FunctionalityRegistry};
+
+/// # Default Help Strategy
+///  Help strategy implementation for the CLI.
+/// This strategy is registered by default and provides a comprehensive help message that lists all available functionalities and their descriptions.
+/// When the `help` command is executed, it displays usage information and a list of all registered functionalities along with their descriptions.
+/// This strategy is designed to be simple and informative, making it easy for users to understand how to use the CLI and what commands are available.
+/// The help message is dynamically generated based on the currently registered functionalities, ensuring that it always reflects the latest state of the CLI.
+pub struct DisplayHelp;
+
+impl DisplayHelp {
+    pub fn show(caller: &str, registered_commands: &Vec<Functionality>) -> String {
+        format!(
+            r#"Usage: {} <command> [args...]
+    Registered commands are listed below.
+
+    supported commands:
+            - help : Display help information
+    {}
+
+        "#,
+            caller,
+            registered_commands
+                .iter()
+                .map(|e| format!("    - {}: {}", e.name, e.description))
+                .collect::<Vec<String>>()
+                .join("\n")
+        )
+    }
+}
 
 /// Error returned by CLI-Core during command routing and strategy execution.
 #[derive(Debug)]
@@ -73,12 +99,13 @@ impl CliCore {
     }
 
     /// Registers a command functionality into this runtime instance.
-    pub fn register(&self, functionality: Functionality) {
+    pub fn register(&self, functionality: Functionality) -> &Self {
         let mut guard = match self.registry().write() {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
         };
         guard.register(functionality);
+        self
     }
 
     /// Retrieves a registered functionality by command name.
@@ -99,8 +126,20 @@ impl CliCore {
         guard.get_all()
     }
 
+    #[allow(dead_code)]
+    fn register_function(&mut self, result: Result<Functionality, StrategyError>) -> &mut Self {
+        if let Ok(functionality) = result {
+            self.register(functionality);
+        }
+        // should we panic on initializer errors instead of silently skipping them?
+        self
+    }
+
     /// Runs the CLI with project-provided initializers and prints user-facing errors.
-    pub fn run_with_initializers(&self, initializers: &[fn() -> Functionality]) {
+    pub fn run_with_initializers<F>(&self, initializers: &[F])
+    where
+        F: Fn() -> Functionality,
+    {
         if let Err(e) = self.try_run_with_initializers(initializers) {
             eprintln!("{e}");
         }
@@ -113,10 +152,10 @@ impl CliCore {
     /// Returns [`CliCoreError::MissingCommand`] when argv does not contain a command,
     /// [`CliCoreError::UnknownCommand`] when the command is not registered, and
     /// [`CliCoreError::StrategyExecution`] when the selected strategy returns an error.
-    pub fn try_run_with_initializers(
-        &self,
-        initializers: &[fn() -> Functionality],
-    ) -> Result<(), CliCoreError> {
+    pub fn try_run_with_initializers<F>(&self, initializers: &[F]) -> Result<(), CliCoreError>
+    where
+        F: Fn() -> Functionality,
+    {
         for init in initializers {
             self.register(init());
         }
@@ -128,24 +167,26 @@ impl CliCore {
     /// This is useful for tests and embedding scenarios where argument sources
     /// are not read from process environment.
     pub fn try_run_from_args(&self, args: &[String]) -> Result<(), CliCoreError> {
-        let help_str = self
-            .get("help")
-            .expect("Help strategy should be registered")
-            .strategy
-            .help();
+        let binary = args.get(0).cloned().unwrap_or_else(|| "cli".to_string());
+
+        // check if help was requested if yes display help and exit
+        if args.iter().any(|arg| arg == "help") {
+            println!("{}", DisplayHelp::show(&binary, &self.get_all()));
+            return Ok(());
+        }
 
         let strategy_string = args
             .get(1)
             .cloned()
             .ok_or_else(|| CliCoreError::MissingCommand {
-                help: help_str.clone(),
+                help: DisplayHelp::show(&binary, &self.get_all()),
             })?;
 
         let functionality =
             self.get(&strategy_string)
                 .ok_or_else(|| CliCoreError::UnknownCommand {
                     command: strategy_string.clone(),
-                    help: help_str,
+                    help: DisplayHelp::show(&binary, &self.get_all()),
                 })?;
 
         let command_args = args.get(2..).unwrap_or(&[]).to_vec();
@@ -164,31 +205,16 @@ impl CliCore {
     }
 
     fn registry(&self) -> &Arc<RwLock<FunctionalityRegistry>> {
-        self.registry.get_or_init(|| {
-            let registry = Arc::new(RwLock::new(FunctionalityRegistry::new()));
-            let help_functionality = build_help_functionality(Arc::clone(&registry));
-            {
-                let mut guard = match registry.write() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
-                guard.register(help_functionality);
-            }
-            registry
-        })
+        self.registry
+            .get_or_init(|| Arc::new(RwLock::new(FunctionalityRegistry::new())))
     }
-}
-
-fn global_core() -> &'static CliCore {
-    static CORE: OnceLock<CliCore> = OnceLock::new();
-    CORE.get_or_init(CliCore::new)
 }
 
 /// Runs the default global [`CliCore`] instance with project initializers.
 ///
 /// This is a convenience wrapper kept for backward compatibility.
 pub fn run_with_initializers(initializers: &[fn() -> Functionality]) {
-    global_core().run_with_initializers(initializers)
+    CliCore::new().run_with_initializers(initializers)
 }
 
 /// Runs the default global [`CliCore`] instance with recoverable errors.
@@ -197,5 +223,5 @@ pub fn run_with_initializers(initializers: &[fn() -> Functionality]) {
 pub fn try_run_with_initializers(
     initializers: &[fn() -> Functionality],
 ) -> Result<(), CliCoreError> {
-    global_core().try_run_with_initializers(initializers)
+    CliCore::new().try_run_with_initializers(initializers)
 }
