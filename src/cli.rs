@@ -82,17 +82,13 @@ pub struct Functionality {
     pub strategy: Arc<dyn CLIStrategy>,
 }
 
-/// Registry storage for command-to-functionality mappings.
-///
-/// This type is exposed for introspection and advanced integrations, while normal
-/// crate usage should go through high-level entry points.
-pub struct FunctionalityRegistry {
+/// Internal registry storage for command-to-functionality mappings.
+pub(crate) struct FunctionalityRegistry {
     functionalities: BTreeMap<String, Functionality>,
 }
 
 impl FunctionalityRegistry {
-    /// Creates an empty functionality registry.
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             functionalities: BTreeMap::new(),
         }

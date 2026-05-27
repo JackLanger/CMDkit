@@ -28,12 +28,10 @@ P2
     - Acceptance met: tests demonstrate and lock expected semantics across repeated calls.
 
 P3
-[ ] Revisit public visibility of FunctionalityRegistry methods and type purpose.
-    - Problem: type is public but core methods are crate-private, which is confusing as public API.
+[x] Revisit public visibility of FunctionalityRegistry methods and type purpose.
+    - Status: done by making FunctionalityRegistry and its constructor crate-internal.
     - Scope: src/cli.rs FunctionalityRegistry.
-    - Acceptance: either
-      1) make registry fully internal, or
-      2) expose a coherent public API with docs and tests.
+    - Acceptance met: registry is now fully internal and no longer appears as a confusing partial public API.
 
 [ ] Decide and document lock-poisoning policy.
     - Problem: current approach recovers from poison silently via into_inner().
