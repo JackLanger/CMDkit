@@ -35,6 +35,7 @@ fn build_recorder_functionality(
         name: name.to_string(),
         description: description.to_string(),
         strategy: Arc::new(RecorderStrategy { calls, error }),
+        children: Vec::new(),
     }
 }
 
@@ -104,6 +105,137 @@ fn run_from_args_routes_trailing_arguments_to_strategy() {
     let guard = calls.lock().expect("call log lock poisoned");
     assert_eq!(guard.len(), 1);
     assert_eq!(guard[0], vec!["one".to_string(), "two".to_string()]);
+}
+
+#[test]
+fn run_from_args_supports_nested_command_paths() {
+    let core = CliCore::new();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+
+    core.register(build_recorder_functionality(
+        "test all",
+        "run all tests",
+        Arc::clone(&calls),
+        None,
+    ));
+
+    let args = vec![
+        "cli-core".to_string(),
+        "test".to_string(),
+        "all".to_string(),
+        "--fast".to_string(),
+    ];
+
+    let result = core.try_run_from_args(&args);
+    assert!(result.is_ok());
+
+    let guard = calls.lock().expect("call log lock poisoned");
+    assert_eq!(guard.len(), 1);
+    assert_eq!(guard[0], vec!["--fast".to_string()]);
+}
+
+#[test]
+fn nested_dispatch_prefers_longest_matching_command_path() {
+    let core = CliCore::new();
+    let parent_calls = Arc::new(Mutex::new(Vec::new()));
+    let child_calls = Arc::new(Mutex::new(Vec::new()));
+
+    core.register(build_recorder_functionality(
+        "test",
+        "run default test command",
+        Arc::clone(&parent_calls),
+        None,
+    ));
+    core.register(build_recorder_functionality(
+        "test all",
+        "run all tests",
+        Arc::clone(&child_calls),
+        None,
+    ));
+
+    let args = vec![
+        "cli-core".to_string(),
+        "test".to_string(),
+        "all".to_string(),
+        "target-a".to_string(),
+    ];
+
+    let result = core.try_run_from_args(&args);
+    assert!(result.is_ok());
+
+    let parent_guard = parent_calls.lock().expect("call log lock poisoned");
+    let child_guard = child_calls.lock().expect("call log lock poisoned");
+    assert!(parent_guard.is_empty());
+    assert_eq!(child_guard.len(), 1);
+    assert_eq!(child_guard[0], vec!["target-a".to_string()]);
+}
+
+#[test]
+fn nested_tree_registration_routes_child_without_name_duplication() {
+    let core = CliCore::new();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+
+    core.register(Functionality {
+        name: "test".to_string(),
+        description: "test root".to_string(),
+        strategy: Arc::new(RecorderStrategy {
+            calls: Arc::new(Mutex::new(Vec::new())),
+            error: None,
+        }),
+        children: vec![Functionality {
+            name: "all".to_string(),
+            description: "run all tests".to_string(),
+            strategy: Arc::new(RecorderStrategy {
+                calls: Arc::clone(&calls),
+                error: None,
+            }),
+            children: Vec::new(),
+        }],
+    });
+
+    let args = vec![
+        "cli-core".to_string(),
+        "test".to_string(),
+        "all".to_string(),
+        "--fast".to_string(),
+    ];
+
+    let result = core.try_run_from_args(&args);
+    assert!(result.is_ok());
+
+    let guard = calls.lock().expect("call log lock poisoned");
+    assert_eq!(guard.len(), 1);
+    assert_eq!(guard[0], vec!["--fast".to_string()]);
+}
+
+#[test]
+fn get_children_returns_direct_nested_commands_with_full_paths() {
+    let core = CliCore::new();
+
+    core.register(Functionality {
+        name: "test".to_string(),
+        description: "test root".to_string(),
+        strategy: Arc::new(RecorderStrategy {
+            calls: Arc::new(Mutex::new(Vec::new())),
+            error: None,
+        }),
+        children: vec![Functionality {
+            name: "all".to_string(),
+            description: "run all tests".to_string(),
+            strategy: Arc::new(RecorderStrategy {
+                calls: Arc::new(Mutex::new(Vec::new())),
+                error: None,
+            }),
+            children: Vec::new(),
+        }],
+    });
+
+    let children = core
+        .get_children("test")
+        .expect("test should have child commands");
+    assert_eq!(children.len(), 1);
+    assert_eq!(children[0].name, "test all");
+    assert_eq!(children[0].description, "run all tests");
 }
 
 #[test]

@@ -15,6 +15,7 @@ fn register_alpha() -> Functionality {
         name: "alpha".to_string(),
         description: "alpha command".to_string(),
         strategy: Arc::new(ProbeStrategy),
+        children: Vec::new(),
     }
 }
 
@@ -23,6 +24,7 @@ fn register_beta() -> Functionality {
         name: "beta".to_string(),
         description: "beta command".to_string(),
         strategy: Arc::new(ProbeStrategy),
+        children: Vec::new(),
     }
 }
 

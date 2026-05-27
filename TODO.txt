@@ -43,11 +43,10 @@ P3
     - Scope: tests/clicore_suite.rs
     - Acceptance: a dedicated test covers help/usage output source behavior.
 
-[ ] Allow for nested Function so that CLIStrategies can hold other Strategies.
-    - Problem currently you can not register CLI Strategies as sub strategies of other stratgies without code duplication
+[x] Allow for nested Function so that CLIStrategies can hold other Strategies.
+    - Status: done via hierarchical Functionality children + longest-path dispatch + child retrieval API.
     - Scope: src/cli.rs src/core.rs tests/
-    - Acceptance CLI Strategies can be nested and can produce a path name for the caller id
-        e.g. cli-core test all 
+    - Acceptance met: nested path commands (for example: cli-core test all) resolve and execute correctly from tree registration without duplicating strategies.
 
 [ ] Allow for options and flags being passed to further alter the functionality of the CLI
     

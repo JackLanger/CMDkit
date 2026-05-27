@@ -80,6 +80,8 @@ pub struct Functionality {
     pub description: String,
     /// Strategy implementation executed when this functionality is selected.
     pub strategy: Arc<dyn CLIStrategy>,
+    /// Optional nested subcommands under this command node.
+    pub children: Vec<Functionality>,
 }
 
 /// Internal registry storage for command-to-functionality mappings.
@@ -99,12 +101,47 @@ impl FunctionalityRegistry {
     }
 
     pub(crate) fn register(&mut self, functionality: Functionality) -> &mut FunctionalityRegistry {
-        self.functionalities
-            .insert(functionality.name.clone(), functionality);
+        let rooted = self.materialize_subtree(&functionality, None);
+        self.insert_subtree(&rooted);
         self
     }
 
     pub(crate) fn get_all(&self) -> Vec<Functionality> {
         self.functionalities.values().cloned().collect()
+    }
+
+    pub(crate) fn get_children(&self, name: &str) -> Option<Vec<Functionality>> {
+        self.get(name).map(|f| f.children)
+    }
+
+    fn materialize_subtree(
+        &self,
+        functionality: &Functionality,
+        prefix: Option<&str>,
+    ) -> Functionality {
+        let full_name = match prefix {
+            Some(parent) => format!("{parent} {}", functionality.name),
+            None => functionality.name.clone(),
+        };
+
+        let children = functionality
+            .children
+            .iter()
+            .map(|child| self.materialize_subtree(child, Some(&full_name)))
+            .collect();
+
+        Functionality {
+            name: full_name,
+            description: functionality.description.clone(),
+            strategy: Arc::clone(&functionality.strategy),
+            children,
+        }
+    }
+
+    fn insert_subtree(&mut self, node: &Functionality) {
+        self.functionalities.insert(node.name.clone(), node.clone());
+        for child in &node.children {
+            self.insert_subtree(child);
+        }
     }
 }

@@ -37,6 +37,7 @@ fn test_register_and_get() {
         name: name.clone(),
         description: "A test functionality".to_string(),
         strategy: Arc::new(TestStrategy),
+        children: Vec::new(),
     };
 
     core.register(functionality.clone());
@@ -53,6 +54,7 @@ fn test_get_all() {
         name: name.clone(),
         description: "A test functionality".to_string(),
         strategy: Arc::new(TestStrategy),
+        children: Vec::new(),
     };
 
     core.register(functionality.clone());
@@ -79,12 +81,14 @@ fn test_register_duplicate_name_overwrites() {
         name: name.clone(),
         description: "original".to_string(),
         strategy: Arc::new(TestStrategy),
+        children: Vec::new(),
     });
 
     core.register(Functionality {
         name: name.clone(),
         description: "updated".to_string(),
         strategy: Arc::new(TestStrategyV2),
+        children: Vec::new(),
     });
 
     let retrieved = core.get(&name).expect("Functionality should be registered");
@@ -101,6 +105,7 @@ fn test_instances_are_isolated() {
         name: name.clone(),
         description: "in a".to_string(),
         strategy: Arc::new(TestStrategy),
+        children: Vec::new(),
     });
 
     assert!(core_a.get(&name).is_some());

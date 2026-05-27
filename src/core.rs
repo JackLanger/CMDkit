@@ -126,6 +126,15 @@ impl CliCore {
         guard.get_all()
     }
 
+    /// Returns direct child commands for a registered command path.
+    pub fn get_children(&self, name: &str) -> Option<Vec<Functionality>> {
+        let guard = match self.registry().read() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        guard.get_children(name)
+    }
+
     #[allow(dead_code)]
     fn register_function(&mut self, result: Result<Functionality, StrategyError>) -> &mut Self {
         if let Ok(functionality) = result {
@@ -175,21 +184,22 @@ impl CliCore {
             return Ok(());
         }
 
-        let strategy_string = args
-            .get(1)
-            .cloned()
-            .ok_or_else(|| CliCoreError::MissingCommand {
+        let command_tokens = args.get(1..).ok_or_else(|| CliCoreError::MissingCommand {
+            help: DisplayHelp::show(&binary, &self.get_all()),
+        })?;
+        if command_tokens.is_empty() {
+            return Err(CliCoreError::MissingCommand {
+                help: DisplayHelp::show(&binary, &self.get_all()),
+            });
+        }
+
+        let (strategy_string, functionality, command_args) = self
+            .resolve_command_path(command_tokens)
+            .ok_or_else(|| CliCoreError::UnknownCommand {
+                command: command_tokens.join(" "),
                 help: DisplayHelp::show(&binary, &self.get_all()),
             })?;
 
-        let functionality =
-            self.get(&strategy_string)
-                .ok_or_else(|| CliCoreError::UnknownCommand {
-                    command: strategy_string.clone(),
-                    help: DisplayHelp::show(&binary, &self.get_all()),
-                })?;
-
-        let command_args = args.get(2..).unwrap_or(&[]).to_vec();
         functionality
             .strategy
             .execute(command_args)
@@ -197,6 +207,21 @@ impl CliCore {
                 command: strategy_string,
                 source,
             })
+    }
+
+    fn resolve_command_path(
+        &self,
+        tokens: &[String],
+    ) -> Option<(String, Functionality, Vec<String>)> {
+        // Match the longest registered command path first so nested commands can
+        // coexist with parent commands (for example: "test" and "test all").
+        for end in (1..=tokens.len()).rev() {
+            let candidate = tokens[..end].join(" ");
+            if let Some(functionality) = self.get(&candidate) {
+                return Some((candidate, functionality, tokens[end..].to_vec()));
+            }
+        }
+        None
     }
 
     fn try_run_from_env(&self) -> Result<(), CliCoreError> {

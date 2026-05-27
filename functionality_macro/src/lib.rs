@@ -73,6 +73,7 @@ pub fn functionality(attr: TokenStream, item: TokenStream) -> TokenStream {
                 name: (#name_expr).to_string(),
                 description: (#description_expr).to_string(),
                 strategy: ::std::sync::Arc::new(#strategy_ident),
+                children: Vec::new(),
             }
         }
     };
