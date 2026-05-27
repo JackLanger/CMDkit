@@ -33,15 +33,15 @@ P3
     - Scope: src/cli.rs FunctionalityRegistry.
     - Acceptance met: registry is now fully internal and no longer appears as a confusing partial public API.
 
-[ ] Decide and document lock-poisoning policy.
-    - Problem: current approach recovers from poison silently via into_inner().
-    - Scope: src/core.rs and src/cli/help.rs lock handling.
-    - Acceptance: explicit policy documented and reflected consistently in code (recover, surface error, or fail fast).
+[x] Decide and document lock-poisoning policy.
+    - Status: done. Added configurable `LockPoisonPolicy` with default `FailFast` and optional `Recover` behavior.
+    - Scope: src/core.rs lock handling + public configuration API.
+    - Acceptance met: policy is explicit in docs and code paths; lock retrieval now fails fast by default unless user opts into recovery.
 
-[ ] Add explicit test for help text behavior in try_run_from_args context.
-    - Problem: current tests do not validate how binary name/help behaves under explicit args.
+[x] Add explicit test for help text behavior in try_run_from_args context.
+    - Status: done. Added dedicated tests for missing and unknown command paths using explicit caller argv.
     - Scope: tests/clicore_suite.rs
-    - Acceptance: a dedicated test covers help/usage output source behavior.
+    - Acceptance met: tests assert usage/help text includes the caller-provided binary name.
 
 [x] Allow for nested Function so that CLIStrategies can hold other Strategies.
     - Status: done via hierarchical Functionality children + longest-path dispatch + child retrieval API.

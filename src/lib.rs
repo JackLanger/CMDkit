@@ -5,7 +5,7 @@ pub mod cli;
 pub mod core;
 
 pub use cli::{CLIStrategy, Functionality, StrategyError, StrategyErrorKind};
-pub use core::{CliCore, CliCoreError};
+pub use core::{CliCore, CliCoreError, LockPoisonPolicy};
 pub use functionality_macro::functionality;
 
 /// Runs the default global [`CliCore`] instance with project initializers.

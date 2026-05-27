@@ -4,7 +4,8 @@ use std::{
 };
 
 use cli_core::{
-    CLIStrategy, CliCore, CliCoreError, Functionality, StrategyError, StrategyErrorKind,
+    CLIStrategy, CliCore, CliCoreError, Functionality, LockPoisonPolicy, StrategyError,
+    StrategyErrorKind,
 };
 
 struct RecorderStrategy {
@@ -254,6 +255,36 @@ fn run_from_args_returns_missing_command_error() {
 }
 
 #[test]
+fn help_text_uses_explicit_binary_name_for_missing_command() {
+    let core = CliCore::new();
+    let args = vec!["custom-cli".to_string()];
+
+    let result = core.try_run_from_args(&args);
+
+    match result {
+        Err(CliCoreError::MissingCommand { help }) => {
+            assert!(help.contains("Usage: custom-cli <command> [args...]"));
+        }
+        _ => panic!("expected missing command error"),
+    }
+}
+
+#[test]
+fn help_text_uses_explicit_binary_name_for_unknown_command() {
+    let core = CliCore::new();
+    let args = vec!["custom-cli".to_string(), "not-a-command".to_string()];
+
+    let result = core.try_run_from_args(&args);
+
+    match result {
+        Err(CliCoreError::UnknownCommand { help, .. }) => {
+            assert!(help.contains("Usage: custom-cli <command> [args...]"));
+        }
+        _ => panic!("expected unknown command error"),
+    }
+}
+
+#[test]
 fn run_from_args_returns_unknown_command_error() {
     let core = CliCore::new();
     let args = vec!["app".to_string(), "unknown".to_string()];
@@ -340,4 +371,13 @@ fn wrapper_calls_do_not_share_runtime_state() {
     assert!(!first_section.contains("beta command"));
     assert!(second_section.contains("beta command"));
     assert!(!second_section.contains("alpha command"));
+}
+
+#[test]
+fn lock_poison_policy_is_configurable() {
+    let core = CliCore::new();
+    assert_eq!(core.lock_poison_policy(), LockPoisonPolicy::FailFast);
+
+    core.set_lock_poison_policy(LockPoisonPolicy::Recover);
+    assert_eq!(core.lock_poison_policy(), LockPoisonPolicy::Recover);
 }

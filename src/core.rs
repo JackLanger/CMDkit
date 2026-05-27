@@ -1,10 +1,35 @@
 use std::{
     error::Error,
     fmt,
-    sync::{Arc, OnceLock, RwLock},
+    sync::{
+        Arc, OnceLock, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard,
+        atomic::{AtomicU8, Ordering},
+    },
 };
 
 use crate::{Functionality, StrategyError, cli::FunctionalityRegistry};
+
+/// Controls how [`CliCore`] responds when the registry lock is poisoned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum LockPoisonPolicy {
+    /// Panic immediately when a poisoned lock is encountered.
+    ///
+    /// This is the default for CLI applications where lock poisoning indicates a
+    /// serious bug and silent recovery would hide inconsistent state.
+    FailFast = 0,
+    /// Recover by taking the poisoned inner value.
+    Recover = 1,
+}
+
+impl LockPoisonPolicy {
+    fn from_u8(value: u8) -> Self {
+        match value {
+            1 => Self::Recover,
+            _ => Self::FailFast,
+        }
+    }
+}
 
 /// # Default Help Strategy
 ///  Help strategy implementation for the CLI.
@@ -82,6 +107,7 @@ impl Error for CliCoreError {
 /// across multiple invocations without relying on process-global mutable state.
 pub struct CliCore {
     registry: OnceLock<Arc<RwLock<FunctionalityRegistry>>>,
+    lock_poison_policy: AtomicU8,
 }
 
 impl Default for CliCore {
@@ -95,43 +121,44 @@ impl CliCore {
     pub fn new() -> Self {
         Self {
             registry: OnceLock::new(),
+            lock_poison_policy: AtomicU8::new(LockPoisonPolicy::FailFast as u8),
         }
+    }
+
+    /// Sets how this runtime handles poisoned registry locks.
+    pub fn set_lock_poison_policy(&self, policy: LockPoisonPolicy) -> &Self {
+        self.lock_poison_policy
+            .store(policy as u8, Ordering::SeqCst);
+        self
+    }
+
+    /// Returns the current lock-poison handling policy for this runtime.
+    pub fn lock_poison_policy(&self) -> LockPoisonPolicy {
+        LockPoisonPolicy::from_u8(self.lock_poison_policy.load(Ordering::SeqCst))
     }
 
     /// Registers a command functionality into this runtime instance.
     pub fn register(&self, functionality: Functionality) -> &Self {
-        let mut guard = match self.registry().write() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
+        let mut guard = self.write_registry();
         guard.register(functionality);
         self
     }
 
     /// Retrieves a registered functionality by command name.
     pub fn get(&self, name: &str) -> Option<Functionality> {
-        let guard = match self.registry().read() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
+        let guard = self.read_registry();
         guard.get(name)
     }
 
     /// Returns all currently registered functionalities.
     pub fn get_all(&self) -> Vec<Functionality> {
-        let guard = match self.registry().read() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
+        let guard = self.read_registry();
         guard.get_all()
     }
 
     /// Returns direct child commands for a registered command path.
     pub fn get_children(&self, name: &str) -> Option<Vec<Functionality>> {
-        let guard = match self.registry().read() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
+        let guard = self.read_registry();
         guard.get_children(name)
     }
 
@@ -232,6 +259,92 @@ impl CliCore {
     fn registry(&self) -> &Arc<RwLock<FunctionalityRegistry>> {
         self.registry
             .get_or_init(|| Arc::new(RwLock::new(FunctionalityRegistry::new())))
+    }
+
+    fn read_registry(&self) -> RwLockReadGuard<'_, FunctionalityRegistry> {
+        match self.registry().read() {
+            Ok(guard) => guard,
+            Err(poisoned) => self.handle_poison(poisoned, "read"),
+        }
+    }
+
+    fn write_registry(&self) -> RwLockWriteGuard<'_, FunctionalityRegistry> {
+        match self.registry().write() {
+            Ok(guard) => guard,
+            Err(poisoned) => self.handle_poison(poisoned, "write"),
+        }
+    }
+
+    fn handle_poison<T>(&self, poisoned: PoisonError<T>, operation: &str) -> T {
+        match self.lock_poison_policy() {
+            LockPoisonPolicy::FailFast => {
+                panic!("cli-core registry lock poisoned during {operation} operation")
+            }
+            LockPoisonPolicy::Recover => poisoned.into_inner(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        panic,
+        sync::{Arc, RwLock},
+    };
+
+    use super::{CliCore, LockPoisonPolicy};
+    use crate::cli::FunctionalityRegistry;
+
+    #[test]
+    fn lock_poison_policy_defaults_to_fail_fast() {
+        let core = CliCore::new();
+        assert_eq!(core.lock_poison_policy(), LockPoisonPolicy::FailFast);
+    }
+
+    #[test]
+    fn fail_fast_policy_panics_on_poisoned_read_lock() {
+        let core = CliCore::new();
+        let lock = Arc::new(RwLock::new(FunctionalityRegistry::new()));
+
+        let lock_for_thread = Arc::clone(&lock);
+        let _ = std::thread::spawn(move || {
+            let _guard = lock_for_thread
+                .write()
+                .expect("write lock should be acquired");
+            panic!("poison lock");
+        })
+        .join();
+
+        let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
+            let poisoned = match lock.read() {
+                Ok(_) => panic!("lock should be poisoned"),
+                Err(poisoned) => poisoned,
+            };
+            drop(core.handle_poison(poisoned, "read"));
+        }));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn recover_policy_returns_inner_guard_on_poisoned_read_lock() {
+        let core = CliCore::new();
+        core.set_lock_poison_policy(LockPoisonPolicy::Recover);
+
+        let lock = Arc::new(RwLock::new(FunctionalityRegistry::new()));
+        let lock_for_thread = Arc::clone(&lock);
+        let _ = std::thread::spawn(move || {
+            let _guard = lock_for_thread
+                .write()
+                .expect("write lock should be acquired");
+            panic!("poison lock");
+        })
+        .join();
+
+        let poisoned = match lock.read() {
+            Ok(_) => panic!("lock should be poisoned"),
+            Err(poisoned) => poisoned,
+        };
+        let _guard = core.handle_poison(poisoned, "read");
     }
 }
 
