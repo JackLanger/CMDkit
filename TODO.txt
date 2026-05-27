@@ -48,6 +48,39 @@ P3
     - Scope: src/cli.rs src/core.rs tests/
     - Acceptance met: nested path commands (for example: cli-core test all) resolve and execute correctly from tree registration without duplicating strategies.
 
-[ ] Allow for options and flags being passed to further alter the functionality of the CLI
+[ ] Allow for options and flags being passed to further alter the functionality of the CLI.
+    - Problem: trailing args are forwarded raw; there is no built-in option/flag interpretation contract.
+    - Scope: src/core.rs public API design + tests/
+    - Acceptance: define a stable strategy-facing argument contract (raw passthrough vs parsed model), implement it, and add dispatch + nested command coverage.
+
+Architecture re-evaluation (2026-05-27)
+
+P1
+[ ] Align README and public examples with current API surface.
+    - Problem: docs still describe removed pieces (`CLIStrategy::help`, default global instance wording, outdated registration examples).
+    - Scope: README.md + example snippets in docs/comments.
+    - Acceptance: examples compile against current API (`children`, lock poison policy, macro usage) and no stale trait methods are referenced.
+
+[ ] Introduce a forward-compatible runtime configuration object.
+    - Problem: runtime behavior is growing (lock policy now, options/flags likely next) but config is scattered across ad hoc setters.
+    - Scope: src/core.rs public API (`CliCore` construction/configuration) + tests.
+    - Acceptance: a single config model exists (for example `CliCoreConfig`) with defaults, builder-style overrides, and backward-compatible constructors.
+
+P2
+[ ] Define and test command-path token semantics for nested commands.
+    - Problem: nested routing currently flattens names with spaces, which can become ambiguous for commands that naturally contain spaces.
+    - Scope: src/cli.rs name materialization + src/core.rs dispatch + tests/clicore_suite.rs.
+    - Acceptance: explicit documented rule for path tokens and edge-case tests (parent-only, longest-match, unknown-subpath, disallowed/escaped tokens).
+
+[ ] Improve help rendering for hierarchical command trees.
+    - Problem: help output is flat and does not expose hierarchy clearly once nested commands grow.
+    - Scope: src/core.rs DisplayHelp + tests.
+    - Acceptance: help can show tree-aware command listings (or explicit flattened policy), with stable formatting tested for explicit argv caller contexts.
+
+P3
+[x] Remove or replace dead registration helper path.
+    - Status: done by removing the dead `register_function` helper from runtime internals.
+    - Scope: src/core.rs.
+    - Acceptance met: no ambiguous unused fallible-registration path remains in the codebase.
     
 

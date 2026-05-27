@@ -162,15 +162,6 @@ impl CliCore {
         guard.get_children(name)
     }
 
-    #[allow(dead_code)]
-    fn register_function(&mut self, result: Result<Functionality, StrategyError>) -> &mut Self {
-        if let Ok(functionality) = result {
-            self.register(functionality);
-        }
-        // should we panic on initializer errors instead of silently skipping them?
-        self
-    }
-
     /// Runs the CLI with project-provided initializers and prints user-facing errors.
     pub fn run_with_initializers<F>(&self, initializers: &[F])
     where
