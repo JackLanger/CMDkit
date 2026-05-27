@@ -10,27 +10,19 @@ impl CLIStrategy for ProbeStrategy {
     }
 }
 
-fn register_alpha() -> Functionality {
-    Functionality {
+fn main() {
+    println!("--FIRST--");
+    core::run_with_functionalities(&[Functionality {
         name: "alpha".to_string(),
         description: "alpha command".to_string(),
         strategy: Arc::new(ProbeStrategy),
         children: Vec::new(),
-    }
-}
-
-fn register_beta() -> Functionality {
-    Functionality {
+    }]);
+    println!("--SECOND--");
+    core::run_with_functionalities(&[Functionality {
         name: "beta".to_string(),
         description: "beta command".to_string(),
         strategy: Arc::new(ProbeStrategy),
         children: Vec::new(),
-    }
-}
-
-fn main() {
-    println!("--FIRST--");
-    core::run_with_initializers(&[register_alpha]);
-    println!("--SECOND--");
-    core::run_with_initializers(&[register_beta]);
+    }]);
 }

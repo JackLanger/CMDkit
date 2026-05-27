@@ -240,6 +240,35 @@ fn get_children_returns_direct_nested_commands_with_full_paths() {
 }
 
 #[test]
+fn functionality_from_fn_supports_function_based_strategy_registration() {
+    let core = CliCore::new();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let calls_for_strategy = Arc::clone(&calls);
+
+    core.register(Functionality::from_fn(
+        "fncmd",
+        "defined from a function",
+        move |args: Vec<String>| {
+            let mut guard = calls_for_strategy.lock().expect("call log lock poisoned");
+            guard.push(args);
+            Ok(())
+        },
+    ));
+
+    let args = vec![
+        "cli-core".to_string(),
+        "fncmd".to_string(),
+        "alpha".to_string(),
+    ];
+    let result = core.try_run_from_args(&args);
+    assert!(result.is_ok());
+
+    let guard = calls.lock().expect("call log lock poisoned");
+    assert_eq!(guard.len(), 1);
+    assert_eq!(guard[0], vec!["alpha".to_string()]);
+}
+
+#[test]
 fn run_from_args_returns_missing_command_error() {
     let core = CliCore::new();
     let args = vec!["app".to_string()];

@@ -1,38 +1,27 @@
-use cli_core::{CliCore, StrategyError, functionality};
+use std::sync::Arc;
 
-#[functionality(name = "macro_new", description = "macro-defined strategy")]
-fn macro_new(args: Vec<String>) -> Result<(), StrategyError> {
-    if args.is_empty() {
-        return Err(StrategyError::invalid_arguments("missing argument"));
-    }
+use cli_core::{CliCore, StrategyError, cli};
+
+#[cli]
+fn simple_cli_strategy() -> Result<(), StrategyError> {
     Ok(())
 }
 
 #[test]
-fn attribute_macro_generates_functionality_factory() {
+fn cli_attribute_generates_no_arg_strategy_wrapper() {
     let core = CliCore::new();
-    core.register(macro_new_functionality());
+    core.register(cli_core::Functionality {
+        name: "simple".to_string(),
+        description: "simple cli strategy".to_string(),
+        strategy: Arc::new(SimpleCliStrategy),
+        children: Vec::new(),
+    });
 
-    let registered = core
-        .get("macro_new")
-        .expect("macro-generated functionality should be registered");
-
-    assert_eq!(registered.name, "macro_new");
-    assert_eq!(registered.description, "macro-defined strategy");
+    let args = vec!["app".to_string(), "simple".to_string(), "extra".to_string()];
+    assert!(core.try_run_from_args(&args).is_ok());
 }
 
 #[test]
-fn attribute_macro_generated_strategy_executes_function_body() {
-    let core = CliCore::new();
-    core.register(macro_new_functionality());
-
-    let ok_args = vec![
-        "app".to_string(),
-        "macro_new".to_string(),
-        "value".to_string(),
-    ];
-    assert!(core.try_run_from_args(&ok_args).is_ok());
-
-    let err_args = vec!["app".to_string(), "macro_new".to_string()];
-    assert!(core.try_run_from_args(&err_args).is_err());
+fn cli_attribute_generated_type_uses_upper_camel_name() {
+    let _instance = SimpleCliStrategy::new();
 }

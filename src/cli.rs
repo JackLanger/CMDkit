@@ -71,6 +71,32 @@ pub trait CLIStrategy: Send + Sync {
     fn execute(&self, args: Vec<String>) -> Result<(), StrategyError>;
 }
 
+/// Adapter that turns a function or closure into a [`CLIStrategy`].
+pub struct FunctionStrategy<F>
+where
+    F: Fn(Vec<String>) -> Result<(), StrategyError> + Send + Sync,
+{
+    runner: F,
+}
+
+impl<F> FunctionStrategy<F>
+where
+    F: Fn(Vec<String>) -> Result<(), StrategyError> + Send + Sync,
+{
+    pub fn new(runner: F) -> Self {
+        Self { runner }
+    }
+}
+
+impl<F> CLIStrategy for FunctionStrategy<F>
+where
+    F: Fn(Vec<String>) -> Result<(), StrategyError> + Send + Sync,
+{
+    fn execute(&self, args: Vec<String>) -> Result<(), StrategyError> {
+        (self.runner)(args)
+    }
+}
+
 /// Metadata + behavior pair for a single command.
 #[derive(Clone)]
 pub struct Functionality {
@@ -82,6 +108,35 @@ pub struct Functionality {
     pub strategy: Arc<dyn CLIStrategy>,
     /// Optional nested subcommands under this command node.
     pub children: Vec<Functionality>,
+}
+
+impl Functionality {
+    /// Creates a functionality from any strategy implementation type.
+    pub fn new<S>(name: impl Into<String>, description: impl Into<String>, strategy: S) -> Self
+    where
+        S: CLIStrategy + 'static,
+    {
+        Self {
+            name: name.into(),
+            description: description.into(),
+            strategy: Arc::new(strategy),
+            children: Vec::new(),
+        }
+    }
+
+    /// Creates a functionality directly from a function or closure strategy.
+    pub fn from_fn<F>(name: impl Into<String>, description: impl Into<String>, runner: F) -> Self
+    where
+        F: Fn(Vec<String>) -> Result<(), StrategyError> + Send + Sync + 'static,
+    {
+        Self::new(name, description, FunctionStrategy::new(runner))
+    }
+
+    /// Attaches nested child functionalities.
+    pub fn with_children(mut self, children: Vec<Functionality>) -> Self {
+        self.children = children;
+        self
+    }
 }
 
 /// Internal registry storage for command-to-functionality mappings.

@@ -162,29 +162,20 @@ impl CliCore {
         guard.get_children(name)
     }
 
-    /// Runs the CLI with project-provided initializers and prints user-facing errors.
-    pub fn run_with_initializers<F>(&self, initializers: &[F])
-    where
-        F: Fn() -> Functionality,
-    {
-        if let Err(e) = self.try_run_with_initializers(initializers) {
+    /// Runs the CLI with pre-built functionalities and prints user-facing errors.
+    pub fn run_with_functionalities(&self, functionalities: &[Functionality]) {
+        if let Err(e) = self.try_run_with_functionalities(functionalities) {
             eprintln!("{e}");
         }
     }
 
-    /// Runs the CLI with project-provided initializers and recoverable errors.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`CliCoreError::MissingCommand`] when argv does not contain a command,
-    /// [`CliCoreError::UnknownCommand`] when the command is not registered, and
-    /// [`CliCoreError::StrategyExecution`] when the selected strategy returns an error.
-    pub fn try_run_with_initializers<F>(&self, initializers: &[F]) -> Result<(), CliCoreError>
-    where
-        F: Fn() -> Functionality,
-    {
-        for init in initializers {
-            self.register(init());
+    /// Runs the CLI with pre-built functionalities and recoverable errors.
+    pub fn try_run_with_functionalities(
+        &self,
+        functionalities: &[Functionality],
+    ) -> Result<(), CliCoreError> {
+        for functionality in functionalities {
+            self.register(functionality.clone());
         }
         self.try_run_from_env()
     }
@@ -339,18 +330,12 @@ mod tests {
     }
 }
 
-/// Runs the default global [`CliCore`] instance with project initializers.
-///
-/// This is a convenience wrapper kept for backward compatibility.
-pub fn run_with_initializers(initializers: &[fn() -> Functionality]) {
-    CliCore::new().run_with_initializers(initializers)
+/// Runs the default global [`CliCore`] instance with pre-built functionalities.
+pub fn run_with_functionalities(functionalities: &[Functionality]) {
+    CliCore::new().run_with_functionalities(functionalities)
 }
 
-/// Runs the default global [`CliCore`] instance with recoverable errors.
-///
-/// This is a convenience wrapper kept for backward compatibility.
-pub fn try_run_with_initializers(
-    initializers: &[fn() -> Functionality],
-) -> Result<(), CliCoreError> {
-    CliCore::new().try_run_with_initializers(initializers)
+/// Runs the default global [`CliCore`] instance with pre-built functionalities.
+pub fn try_run_with_functionalities(functionalities: &[Functionality]) -> Result<(), CliCoreError> {
+    CliCore::new().try_run_with_functionalities(functionalities)
 }
