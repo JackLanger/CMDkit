@@ -1,11 +1,11 @@
 use std::{
-    process::Command,
+    process::Command as ProcessCommand,
     sync::{Arc, Mutex},
 };
 
 use cli_core::{
-    CLIStrategy, CliCore, CliCoreError, Functionality, LockPoisonPolicy, StrategyError,
-    StrategyErrorKind,
+    CliCore, CliCoreError, Command, CommandMetaData, CommandStrategy, LockPoisonPolicy,
+    StrategyError, StrategyErrorKind,
 };
 
 struct RecorderStrategy {
@@ -13,7 +13,7 @@ struct RecorderStrategy {
     error: Option<StrategyError>,
 }
 
-impl CLIStrategy for RecorderStrategy {
+impl CommandStrategy for RecorderStrategy {
     fn execute(&self, args: Vec<String>) -> Result<(), StrategyError> {
         let mut guard = self.calls.lock().expect("call log lock poisoned");
         guard.push(args);
@@ -31,10 +31,12 @@ fn build_recorder_functionality(
     description: &str,
     calls: Arc<Mutex<Vec<Vec<String>>>>,
     error: Option<StrategyError>,
-) -> Functionality {
-    Functionality {
-        name: name.to_string(),
-        description: description.to_string(),
+) -> Command {
+    Command {
+        metadata: CommandMetaData {
+            name: name.to_string(),
+            description: description.to_string(),
+        },
         strategy: Arc::new(RecorderStrategy { calls, error }),
         children: Vec::new(),
     }
@@ -55,8 +57,8 @@ fn register_and_get_by_name_works() {
     let got = core
         .get("echo")
         .expect("echo functionality should be found");
-    assert_eq!(got.name, "echo");
-    assert_eq!(got.description, "echo arguments");
+    assert_eq!(got.metadata.name, "echo");
+    assert_eq!(got.metadata.description, "echo arguments");
 }
 
 #[test]
@@ -78,7 +80,7 @@ fn duplicate_registration_overwrites_previous_entry() {
     ));
 
     let got = core.get("dup").expect("dup functionality should exist");
-    assert_eq!(got.description, "second");
+    assert_eq!(got.metadata.description, "second");
 }
 
 #[test]
@@ -176,16 +178,20 @@ fn nested_tree_registration_routes_child_without_name_duplication() {
     let core = CliCore::new();
     let calls = Arc::new(Mutex::new(Vec::new()));
 
-    core.register(Functionality {
-        name: "test".to_string(),
-        description: "test root".to_string(),
+    core.register(Command {
+        metadata: CommandMetaData {
+            name: "test".to_string(),
+            description: "test root".to_string(),
+        },
         strategy: Arc::new(RecorderStrategy {
             calls: Arc::new(Mutex::new(Vec::new())),
             error: None,
         }),
-        children: vec![Functionality {
-            name: "all".to_string(),
-            description: "run all tests".to_string(),
+        children: vec![Command {
+            metadata: CommandMetaData {
+                name: "all".to_string(),
+                description: "run all tests".to_string(),
+            },
             strategy: Arc::new(RecorderStrategy {
                 calls: Arc::clone(&calls),
                 error: None,
@@ -213,16 +219,20 @@ fn nested_tree_registration_routes_child_without_name_duplication() {
 fn get_children_returns_direct_nested_commands_with_full_paths() {
     let core = CliCore::new();
 
-    core.register(Functionality {
-        name: "test".to_string(),
-        description: "test root".to_string(),
+    core.register(Command {
+        metadata: CommandMetaData {
+            name: "test".to_string(),
+            description: "test root".to_string(),
+        },
         strategy: Arc::new(RecorderStrategy {
             calls: Arc::new(Mutex::new(Vec::new())),
             error: None,
         }),
-        children: vec![Functionality {
-            name: "all".to_string(),
-            description: "run all tests".to_string(),
+        children: vec![Command {
+            metadata: CommandMetaData {
+                name: "all".to_string(),
+                description: "run all tests".to_string(),
+            },
             strategy: Arc::new(RecorderStrategy {
                 calls: Arc::new(Mutex::new(Vec::new())),
                 error: None,
@@ -235,8 +245,8 @@ fn get_children_returns_direct_nested_commands_with_full_paths() {
         .get_children("test")
         .expect("test should have child commands");
     assert_eq!(children.len(), 1);
-    assert_eq!(children[0].name, "test all");
-    assert_eq!(children[0].description, "run all tests");
+    assert_eq!(children[0].metadata.name, "test all");
+    assert_eq!(children[0].metadata.description, "run all tests");
 }
 
 #[test]
@@ -245,7 +255,7 @@ fn functionality_from_fn_supports_function_based_strategy_registration() {
     let calls = Arc::new(Mutex::new(Vec::new()));
     let calls_for_strategy = Arc::clone(&calls);
 
-    core.register(Functionality::from_fn(
+    core.register(Command::from_fn(
         "fncmd",
         "defined from a function",
         move |args: Vec<String>| {
@@ -379,7 +389,7 @@ fn wrapper_calls_do_not_share_runtime_state() {
     let binary = std::env::var("CARGO_BIN_EXE_wrapper_probe")
         .expect("wrapper_probe binary should be built by cargo test");
 
-    let output = Command::new(binary)
+    let output = ProcessCommand::new(binary)
         .arg("help")
         .output()
         .expect("wrapper_probe should run successfully");

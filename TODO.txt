@@ -66,10 +66,10 @@ P1
     - Scope: src/core.rs public API (`CliCore` construction/configuration) + tests.
     - Acceptance: a single config model exists (for example `CliCoreConfig`) with defaults, builder-style overrides, and backward-compatible constructors.
 
-[ ] Naming lacks in precision the User might not understand what Functionality is and why he needs it
-    - Problem confusing or unspecific naming
-    - Scope src/cli.rs
-    - Acceptence CliStrategy renamed and Functionality Renamed such that intend and use is clear.
+[x] Naming lacks in precision the User might not understand what Functionality is and why he needs it
+    - Status: done. Renamed `Functionality`/`CommandSpec` usage to explicit `Command` + `CommandMetaData`, and updated APIs/tests accordingly.
+    - Scope: src/cli.rs + src/core.rs + src/lib.rs + tests/
+    - Acceptance met: command intent is explicit at type level and metadata fields are grouped into `CommandMetaData`.
 
 P2
 [ ] Define and test command-path token semantics for nested commands.

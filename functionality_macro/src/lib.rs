@@ -44,7 +44,7 @@ pub fn cli(attr: TokenStream, item: TokenStream) -> TokenStream {
             }
         }
 
-        impl ::cli_core::CLIStrategy for #strategy_ident {
+        impl ::cli_core::CommandStrategy for #strategy_ident {
             fn execute(&self, _args: Vec<String>) -> Result<(), ::cli_core::StrategyError> {
                 #fn_ident()
             }

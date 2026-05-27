@@ -7,7 +7,7 @@ use std::{
     },
 };
 
-use crate::{Functionality, StrategyError, cli::FunctionalityRegistry};
+use crate::{Command, StrategyError, cli::CommandRegistry};
 
 /// Controls how [`CliCore`] responds when the registry lock is poisoned.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,7 +40,7 @@ impl LockPoisonPolicy {
 pub struct DisplayHelp;
 
 impl DisplayHelp {
-    pub fn show(caller: &str, registered_commands: &Vec<Functionality>) -> String {
+    pub fn show(caller: &str, registered_commands: &Vec<Command>) -> String {
         format!(
             r#"Usage: {} <command> [args...]
     Registered commands are listed below.
@@ -53,7 +53,7 @@ impl DisplayHelp {
             caller,
             registered_commands
                 .iter()
-                .map(|e| format!("    - {}: {}", e.name, e.description))
+                .map(|e| format!("    - {}: {}", e.metadata.name, e.metadata.description))
                 .collect::<Vec<String>>()
                 .join("\n")
         )
@@ -106,7 +106,7 @@ impl Error for CliCoreError {
 /// Each [`CliCore`] owns a lazily initialized command registry and can be reused
 /// across multiple invocations without relying on process-global mutable state.
 pub struct CliCore {
-    registry: OnceLock<Arc<RwLock<FunctionalityRegistry>>>,
+    registry: OnceLock<Arc<RwLock<CommandRegistry>>>,
     lock_poison_policy: AtomicU8,
 }
 
@@ -138,44 +138,41 @@ impl CliCore {
     }
 
     /// Registers a command functionality into this runtime instance.
-    pub fn register(&self, functionality: Functionality) -> &Self {
+    pub fn register(&self, command: Command) -> &Self {
         let mut guard = self.write_registry();
-        guard.register(functionality);
+        guard.register(command);
         self
     }
 
     /// Retrieves a registered functionality by command name.
-    pub fn get(&self, name: &str) -> Option<Functionality> {
+    pub fn get(&self, name: &str) -> Option<Command> {
         let guard = self.read_registry();
         guard.get(name)
     }
 
     /// Returns all currently registered functionalities.
-    pub fn get_all(&self) -> Vec<Functionality> {
+    pub fn get_all(&self) -> Vec<Command> {
         let guard = self.read_registry();
         guard.get_all()
     }
 
     /// Returns direct child commands for a registered command path.
-    pub fn get_children(&self, name: &str) -> Option<Vec<Functionality>> {
+    pub fn get_children(&self, name: &str) -> Option<Vec<Command>> {
         let guard = self.read_registry();
         guard.get_children(name)
     }
 
     /// Runs the CLI with pre-built functionalities and prints user-facing errors.
-    pub fn run_with_functionalities(&self, functionalities: &[Functionality]) {
-        if let Err(e) = self.try_run_with_functionalities(functionalities) {
+    pub fn run_with_commands(&self, commands: &[Command]) {
+        if let Err(e) = self.try_run_with_commands(commands) {
             eprintln!("{e}");
         }
     }
 
-    /// Runs the CLI with pre-built functionalities and recoverable errors.
-    pub fn try_run_with_functionalities(
-        &self,
-        functionalities: &[Functionality],
-    ) -> Result<(), CliCoreError> {
-        for functionality in functionalities {
-            self.register(functionality.clone());
+    /// Runs the CLI with pre-built commands and recoverable errors.
+    pub fn try_run_with_commands(&self, commands: &[Command]) -> Result<(), CliCoreError> {
+        for command in commands {
+            self.register(command.clone());
         }
         self.try_run_from_env()
     }
@@ -202,14 +199,14 @@ impl CliCore {
             });
         }
 
-        let (strategy_string, functionality, command_args) = self
+        let (strategy_string, command, command_args) = self
             .resolve_command_path(command_tokens)
             .ok_or_else(|| CliCoreError::UnknownCommand {
                 command: command_tokens.join(" "),
                 help: DisplayHelp::show(&binary, &self.get_all()),
             })?;
 
-        functionality
+        command
             .strategy
             .execute(command_args)
             .map_err(|source| CliCoreError::StrategyExecution {
@@ -218,16 +215,13 @@ impl CliCore {
             })
     }
 
-    fn resolve_command_path(
-        &self,
-        tokens: &[String],
-    ) -> Option<(String, Functionality, Vec<String>)> {
+    fn resolve_command_path(&self, tokens: &[String]) -> Option<(String, Command, Vec<String>)> {
         // Match the longest registered command path first so nested commands can
         // coexist with parent commands (for example: "test" and "test all").
         for end in (1..=tokens.len()).rev() {
             let candidate = tokens[..end].join(" ");
-            if let Some(functionality) = self.get(&candidate) {
-                return Some((candidate, functionality, tokens[end..].to_vec()));
+            if let Some(command) = self.get(&candidate) {
+                return Some((candidate, command, tokens[end..].to_vec()));
             }
         }
         None
@@ -238,19 +232,19 @@ impl CliCore {
         self.try_run_from_args(&argv)
     }
 
-    fn registry(&self) -> &Arc<RwLock<FunctionalityRegistry>> {
+    fn registry(&self) -> &Arc<RwLock<CommandRegistry>> {
         self.registry
-            .get_or_init(|| Arc::new(RwLock::new(FunctionalityRegistry::new())))
+            .get_or_init(|| Arc::new(RwLock::new(CommandRegistry::new())))
     }
 
-    fn read_registry(&self) -> RwLockReadGuard<'_, FunctionalityRegistry> {
+    fn read_registry(&self) -> RwLockReadGuard<'_, CommandRegistry> {
         match self.registry().read() {
             Ok(guard) => guard,
             Err(poisoned) => self.handle_poison(poisoned, "read"),
         }
     }
 
-    fn write_registry(&self) -> RwLockWriteGuard<'_, FunctionalityRegistry> {
+    fn write_registry(&self) -> RwLockWriteGuard<'_, CommandRegistry> {
         match self.registry().write() {
             Ok(guard) => guard,
             Err(poisoned) => self.handle_poison(poisoned, "write"),
@@ -275,7 +269,7 @@ mod tests {
     };
 
     use super::{CliCore, LockPoisonPolicy};
-    use crate::cli::FunctionalityRegistry;
+    use crate::cli::CommandRegistry;
 
     #[test]
     fn lock_poison_policy_defaults_to_fail_fast() {
@@ -286,7 +280,7 @@ mod tests {
     #[test]
     fn fail_fast_policy_panics_on_poisoned_read_lock() {
         let core = CliCore::new();
-        let lock = Arc::new(RwLock::new(FunctionalityRegistry::new()));
+        let lock = Arc::new(RwLock::new(CommandRegistry::new()));
 
         let lock_for_thread = Arc::clone(&lock);
         let _ = std::thread::spawn(move || {
@@ -312,7 +306,7 @@ mod tests {
         let core = CliCore::new();
         core.set_lock_poison_policy(LockPoisonPolicy::Recover);
 
-        let lock = Arc::new(RwLock::new(FunctionalityRegistry::new()));
+        let lock = Arc::new(RwLock::new(CommandRegistry::new()));
         let lock_for_thread = Arc::clone(&lock);
         let _ = std::thread::spawn(move || {
             let _guard = lock_for_thread
@@ -331,11 +325,11 @@ mod tests {
 }
 
 /// Runs the default global [`CliCore`] instance with pre-built functionalities.
-pub fn run_with_functionalities(functionalities: &[Functionality]) {
-    CliCore::new().run_with_functionalities(functionalities)
+pub fn run_with_commands(commands: &[Command]) {
+    CliCore::new().run_with_commands(commands)
 }
 
-/// Runs the default global [`CliCore`] instance with pre-built functionalities.
-pub fn try_run_with_functionalities(functionalities: &[Functionality]) -> Result<(), CliCoreError> {
-    CliCore::new().try_run_with_functionalities(functionalities)
+/// Runs the default global [`CliCore`] instance with pre-built commands.
+pub fn try_run_with_commands(commands: &[Command]) -> Result<(), CliCoreError> {
+    CliCore::new().try_run_with_commands(commands)
 }

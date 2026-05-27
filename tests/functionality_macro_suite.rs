@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use cli_core::{CliCore, StrategyError, cli};
+use cli_core::{CliCore, Command, CommandMetaData, StrategyError, cli};
 
 #[cli]
 fn simple_cli_strategy() -> Result<(), StrategyError> {
@@ -10,10 +10,12 @@ fn simple_cli_strategy() -> Result<(), StrategyError> {
 #[test]
 fn cli_attribute_generates_no_arg_strategy_wrapper() {
     let core = CliCore::new();
-    core.register(cli_core::Functionality {
-        name: "simple".to_string(),
-        description: "simple cli strategy".to_string(),
-        strategy: Arc::new(SimpleCliStrategy),
+    core.register(Command {
+        metadata: CommandMetaData {
+            name: "simple".to_string(),
+            description: "simple cli strategy".to_string(),
+        },
+        strategy: Arc::new(SimpleCliStrategy::new()),
         children: Vec::new(),
     });
 

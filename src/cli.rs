@@ -22,7 +22,7 @@ impl fmt::Display for StrategyErrorKind {
     }
 }
 
-/// Structured error returned by [`CLIStrategy::execute`].
+/// Structured error returned by [`CommandStrategy::execute`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StrategyError {
     /// Machine-friendly error category.
@@ -65,13 +65,13 @@ impl fmt::Display for StrategyError {
 impl Error for StrategyError {}
 
 /// Strategy contract for CLI command implementations.
-pub trait CLIStrategy: Send + Sync {
+pub trait CommandStrategy: Send + Sync {
     /// Executes the strategy with command-specific arguments.
     /// Strategy implementations should validate argument viability internally.
     fn execute(&self, args: Vec<String>) -> Result<(), StrategyError>;
 }
 
-/// Adapter that turns a function or closure into a [`CLIStrategy`].
+/// Adapter that turns a function or closure into a [`CommandStrategy`].
 pub struct FunctionStrategy<F>
 where
     F: Fn(Vec<String>) -> Result<(), StrategyError> + Send + Sync,
@@ -88,7 +88,7 @@ where
     }
 }
 
-impl<F> CLIStrategy for FunctionStrategy<F>
+impl<F> CommandStrategy for FunctionStrategy<F>
 where
     F: Fn(Vec<String>) -> Result<(), StrategyError> + Send + Sync,
 {
@@ -97,34 +97,43 @@ where
     }
 }
 
-/// Metadata + behavior pair for a single command.
+/// User-facing metadata for a single CLI command.
 #[derive(Clone)]
-pub struct Functionality {
+pub struct CommandMetaData {
     /// Command name used for lookup (for example: "help", "new", "build").
     pub name: String,
     /// Short description shown in generated help output.
     pub description: String,
-    /// Strategy implementation executed when this functionality is selected.
-    pub strategy: Arc<dyn CLIStrategy>,
-    /// Optional nested subcommands under this command node.
-    pub children: Vec<Functionality>,
 }
 
-impl Functionality {
-    /// Creates a functionality from any strategy implementation type.
+/// Metadata + handler pair for a single CLI command.
+#[derive(Clone)]
+pub struct Command {
+    /// User-facing command metadata.
+    pub metadata: CommandMetaData,
+    /// Handler implementation executed when this command is selected.
+    pub strategy: Arc<dyn CommandStrategy>,
+    /// Optional nested subcommands under this command.
+    pub children: Vec<Command>,
+}
+
+impl Command {
+    /// Creates a command specification from any handler implementation type.
     pub fn new<S>(name: impl Into<String>, description: impl Into<String>, strategy: S) -> Self
     where
-        S: CLIStrategy + 'static,
+        S: CommandStrategy + 'static,
     {
         Self {
-            name: name.into(),
-            description: description.into(),
+            metadata: CommandMetaData {
+                name: name.into(),
+                description: description.into(),
+            },
             strategy: Arc::new(strategy),
             children: Vec::new(),
         }
     }
 
-    /// Creates a functionality directly from a function or closure strategy.
+    /// Creates a command specification directly from a function or closure handler.
     pub fn from_fn<F>(name: impl Into<String>, description: impl Into<String>, runner: F) -> Self
     where
         F: Fn(Vec<String>) -> Result<(), StrategyError> + Send + Sync + 'static,
@@ -132,69 +141,74 @@ impl Functionality {
         Self::new(name, description, FunctionStrategy::new(runner))
     }
 
-    /// Attaches nested child functionalities.
-    pub fn with_children(mut self, children: Vec<Functionality>) -> Self {
+    /// Appends a single child command.
+    pub fn add_child(mut self, child: Command) -> Self {
+        self.children.push(child);
+        self
+    }
+
+    /// Attaches nested child commands.
+    pub fn with_children(mut self, children: Vec<Command>) -> Self {
         self.children = children;
         self
     }
 }
 
-/// Internal registry storage for command-to-functionality mappings.
-pub(crate) struct FunctionalityRegistry {
-    functionalities: BTreeMap<String, Functionality>,
+/// Internal registry storage for command-to-command mappings.
+pub(crate) struct CommandRegistry {
+    commands: BTreeMap<String, Command>,
 }
 
-impl FunctionalityRegistry {
+impl CommandRegistry {
     pub(crate) fn new() -> Self {
         Self {
-            functionalities: BTreeMap::new(),
+            commands: BTreeMap::new(),
         }
     }
 
-    pub(crate) fn get(&self, name: &str) -> Option<Functionality> {
-        self.functionalities.get(name).cloned()
+    pub(crate) fn get(&self, name: &str) -> Option<Command> {
+        self.commands.get(name).cloned()
     }
 
-    pub(crate) fn register(&mut self, functionality: Functionality) -> &mut FunctionalityRegistry {
-        let rooted = self.materialize_subtree(&functionality, None);
+    pub(crate) fn register(&mut self, command: Command) -> &mut CommandRegistry {
+        let rooted = self.materialize_subtree(&command, None);
         self.insert_subtree(&rooted);
         self
     }
 
-    pub(crate) fn get_all(&self) -> Vec<Functionality> {
-        self.functionalities.values().cloned().collect()
+    pub(crate) fn get_all(&self) -> Vec<Command> {
+        self.commands.values().cloned().collect()
     }
 
-    pub(crate) fn get_children(&self, name: &str) -> Option<Vec<Functionality>> {
+    pub(crate) fn get_children(&self, name: &str) -> Option<Vec<Command>> {
         self.get(name).map(|f| f.children)
     }
 
-    fn materialize_subtree(
-        &self,
-        functionality: &Functionality,
-        prefix: Option<&str>,
-    ) -> Functionality {
+    fn materialize_subtree(&self, command: &Command, prefix: Option<&str>) -> Command {
         let full_name = match prefix {
-            Some(parent) => format!("{parent} {}", functionality.name),
-            None => functionality.name.clone(),
+            Some(parent) => format!("{parent} {}", command.metadata.name),
+            None => command.metadata.name.clone(),
         };
 
-        let children = functionality
+        let children = command
             .children
             .iter()
             .map(|child| self.materialize_subtree(child, Some(&full_name)))
             .collect();
 
-        Functionality {
-            name: full_name,
-            description: functionality.description.clone(),
-            strategy: Arc::clone(&functionality.strategy),
+        Command {
+            metadata: CommandMetaData {
+                name: full_name,
+                description: command.metadata.description.clone(),
+            },
+            strategy: Arc::clone(&command.strategy),
             children,
         }
     }
 
-    fn insert_subtree(&mut self, node: &Functionality) {
-        self.functionalities.insert(node.name.clone(), node.clone());
+    fn insert_subtree(&mut self, node: &Command) {
+        self.commands
+            .insert(node.metadata.name.clone(), node.clone());
         for child in &node.children {
             self.insert_subtree(child);
         }
