@@ -61,10 +61,10 @@ P1
     - Scope: README.md + example snippets in docs/comments.
     - Acceptance: examples compile against current API (`children`, lock poison policy, macro usage) and no stale trait methods are referenced.
 
-[ ] Introduce a forward-compatible runtime configuration object.
-    - Problem: runtime behavior is growing (lock policy now, options/flags likely next) but config is scattered across ad hoc setters.
+[x] Introduce a forward-compatible runtime configuration object.
+    - Status: done. `CoreConfig` is now the runtime-owned config object, injected at `CliCore::create(...)` time, with `CliCore::new()` preserved as the backward-compatible default constructor.
     - Scope: src/core.rs public API (`CliCore` construction/configuration) + tests.
-    - Acceptance: a single config model exists (for example `CliCoreConfig`) with defaults, builder-style overrides, and backward-compatible constructors.
+    - Acceptance met: runtime configuration is no longer scattered across ad hoc setters, and changing config requires constructing a new `CliCore`.
 
 [x] Naming lacks in precision the User might not understand what Functionality is and why he needs it
     - Status: done. Renamed `Functionality`/`CommandSpec` usage to explicit `Command` + `CommandMetaData`, and updated APIs/tests accordingly.

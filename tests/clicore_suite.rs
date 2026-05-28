@@ -5,7 +5,7 @@ use std::{
 
 use cli_core::{
     CliCore, CliCoreError, Command, CommandMetaData, CommandStrategy, LockPoisonPolicy,
-    StrategyError, StrategyErrorKind,
+    StrategyError, StrategyErrorKind, core::CoreConfig,
 };
 
 struct RecorderStrategy {
@@ -410,13 +410,4 @@ fn wrapper_calls_do_not_share_runtime_state() {
     assert!(!first_section.contains("beta command"));
     assert!(second_section.contains("beta command"));
     assert!(!second_section.contains("alpha command"));
-}
-
-#[test]
-fn lock_poison_policy_is_configurable() {
-    let core = CliCore::new();
-    assert_eq!(core.lock_poison_policy(), LockPoisonPolicy::FailFast);
-
-    core.set_lock_poison_policy(LockPoisonPolicy::Recover);
-    assert_eq!(core.lock_poison_policy(), LockPoisonPolicy::Recover);
 }

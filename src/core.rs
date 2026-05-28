@@ -22,12 +22,22 @@ pub enum LockPoisonPolicy {
     Recover = 1,
 }
 
-impl LockPoisonPolicy {
-    fn from_u8(value: u8) -> Self {
-        match value {
-            1 => Self::Recover,
-            _ => Self::FailFast,
+pub struct CoreConfig {
+    pub lock_poison_policy: LockPoisonPolicy,
+}
+
+impl CoreConfig {
+    // creates a default config object
+    pub fn new() -> Self {
+        Self {
+            lock_poison_policy: LockPoisonPolicy::FailFast,
         }
+    }
+}
+
+impl Default for CoreConfig {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -107,7 +117,7 @@ impl Error for CliCoreError {
 /// across multiple invocations without relying on process-global mutable state.
 pub struct CliCore {
     registry: OnceLock<Arc<RwLock<CommandRegistry>>>,
-    lock_poison_policy: AtomicU8,
+    config: CoreConfig,
 }
 
 impl Default for CliCore {
@@ -117,24 +127,25 @@ impl Default for CliCore {
 }
 
 impl CliCore {
+    /// creates a CliCore instance form a [CoreConfig].
+    pub fn create(config: CoreConfig) -> Self {
+        Self {
+            registry: OnceLock::new(),
+            config,
+        }
+    }
+
     /// Creates a new CLI runtime with lazy registry initialization.
     pub fn new() -> Self {
         Self {
             registry: OnceLock::new(),
-            lock_poison_policy: AtomicU8::new(LockPoisonPolicy::FailFast as u8),
+            config: CoreConfig::new(),
         }
-    }
-
-    /// Sets how this runtime handles poisoned registry locks.
-    pub fn set_lock_poison_policy(&self, policy: LockPoisonPolicy) -> &Self {
-        self.lock_poison_policy
-            .store(policy as u8, Ordering::SeqCst);
-        self
     }
 
     /// Returns the current lock-poison handling policy for this runtime.
     pub fn lock_poison_policy(&self) -> LockPoisonPolicy {
-        LockPoisonPolicy::from_u8(self.lock_poison_policy.load(Ordering::SeqCst))
+        self.config.lock_poison_policy
     }
 
     /// Registers a command functionality into this runtime instance.
@@ -269,7 +280,7 @@ mod tests {
     };
 
     use super::{CliCore, LockPoisonPolicy};
-    use crate::cli::CommandRegistry;
+    use crate::{cli::CommandRegistry, core::CoreConfig};
 
     #[test]
     fn lock_poison_policy_defaults_to_fail_fast() {
@@ -303,8 +314,11 @@ mod tests {
 
     #[test]
     fn recover_policy_returns_inner_guard_on_poisoned_read_lock() {
-        let core = CliCore::new();
-        core.set_lock_poison_policy(LockPoisonPolicy::Recover);
+        let config = CoreConfig {
+            lock_poison_policy: LockPoisonPolicy::Recover,
+        };
+
+        let core = CliCore::create(config);
 
         let lock = Arc::new(RwLock::new(CommandRegistry::new()));
         let lock_for_thread = Arc::clone(&lock);
