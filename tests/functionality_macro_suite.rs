@@ -1,22 +1,18 @@
 use std::sync::Arc;
 
-use cli_core::{CliCore, Command, CommandMetaData, StrategyError, cli};
+use cli_core::{CliCore, Command, CommandMetaData, cli};
 
 #[cli]
-fn simple_cli_strategy() -> Result<(), StrategyError> {
+fn simple_cli_strategy(&self, _args: Vec<String>) -> Result<(), cli_core::StrategyError> {
     Ok(())
 }
 
 #[test]
-fn cli_attribute_generates_no_arg_strategy_wrapper() {
+fn cli_attribute_generates_execute_shaped_strategy_wrapper() {
     let core = CliCore::new();
     core.register(Command {
-        metadata: CommandMetaData {
-            name: "simple".to_string(),
-            description: "simple cli strategy".to_string(),
-        },
+        metadata: CommandMetaData::new("simple", "simple cli strategy"),
         strategy: Arc::new(SimpleCliStrategy::new()),
-        children: Vec::new(),
     });
 
     let args = vec!["app".to_string(), "simple".to_string(), "extra".to_string()];

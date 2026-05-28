@@ -56,10 +56,10 @@ P3
 Architecture re-evaluation (2026-05-27)
 
 P1
-[ ] Align README and public examples with current API surface.
-    - Problem: docs still describe removed pieces (`CLIStrategy::help`, default global instance wording, outdated registration examples).
+[x] Align README and public examples with current API surface.
+    - Status: done. README and public docs now describe the flat command model, strategy-owned chaining, `CoreConfig`, and pluggable `HelpRenderer`.
     - Scope: README.md + example snippets in docs/comments.
-    - Acceptance: examples compile against current API (`children`, lock poison policy, macro usage) and no stale trait methods are referenced.
+    - Acceptance met: examples align with current APIs (`Command`, `CommandMetaData`, `CommandStrategy`, `CoreConfig`, macro usage) and stale trait methods were removed.
 
 [x] Introduce a forward-compatible runtime configuration object.
     - Status: done. `CoreConfig` is now the runtime-owned config object, injected at `CliCore::create(...)` time, with `CliCore::new()` preserved as the backward-compatible default constructor.
@@ -72,15 +72,21 @@ P1
     - Acceptance met: command intent is explicit at type level and metadata fields are grouped into `CommandMetaData`.
 
 P2
-[ ] Define and test command-path token semantics for nested commands.
-    - Problem: nested routing currently flattens names with spaces, which can become ambiguous for commands that naturally contain spaces.
-    - Scope: src/cli.rs name materialization + src/core.rs dispatch + tests/clicore_suite.rs.
-    - Acceptance: explicit documented rule for path tokens and edge-case tests (parent-only, longest-match, unknown-subpath, disallowed/escaped tokens).
+[ ] Define and test strategy-facing token semantics for chained command arguments.
+    - Problem: command routing is intentionally first-token only; strategy-level chaining behavior and token contracts should be documented explicitly for consumers.
+    - Scope: README.md + src/core.rs docs + tests/clicore_suite.rs.
+    - Acceptance: explicit documented rule for `argv[2..]` forwarding and edge-case tests for strategy-owned subtask interpretation.
 
-[ ] Improve help rendering for hierarchical command trees.
-    - Problem: help output is flat and does not expose hierarchy clearly once nested commands grow.
-    - Scope: src/core.rs DisplayHelp + tests.
-    - Acceptance: help can show tree-aware command listings (or explicit flattened policy), with stable formatting tested for explicit argv caller contexts.
+[ ] Add optional recursive subcommand catalogs for help rendering.
+    - Status: in progress. Added `SubcommandCatalog` + `SubcommandRouter` and initial recursive dispatch/help tests.
+    - Problem: renderer needs deep subcommand visibility without forcing every strategy to implement help methods.
+    - Scope: src/cli.rs strategy capability + src/core.rs renderer traversal + tests/clicore_suite.rs.
+    - Acceptance: recursive subcommand chains are discoverable for help output while `CommandStrategy::execute` remains the only required strategy method.
+
+[ ] Improve help rendering.
+    - Problem: default help output is plain text and currently surfaces only command name/description.
+    - Scope: src/core.rs `PlainTextHelpRenderer` + tests.
+    - Acceptance: renderer output can include optional metadata fields (`usage`, `long_description`, `examples`, `options`, `aliases`) with stable formatting tests.
 
 P3
 [x] Remove or replace dead registration helper path.
@@ -88,4 +94,3 @@ P3
     - Scope: src/core.rs.
     - Acceptance met: no ambiguous unused fallible-registration path remains in the codebase.
     
-

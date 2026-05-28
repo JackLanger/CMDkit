@@ -4,8 +4,8 @@ use std::{
 };
 
 use cli_core::{
-    CliCore, CliCoreError, Command, CommandMetaData, CommandStrategy, LockPoisonPolicy,
-    StrategyError, StrategyErrorKind, core::CoreConfig,
+    CliCore, CliCoreError, Command, CommandMetaData, CommandStrategy, StrategyError,
+    StrategyErrorKind, SubcommandRouter,
 };
 
 struct RecorderStrategy {
@@ -33,12 +33,8 @@ fn build_recorder_functionality(
     error: Option<StrategyError>,
 ) -> Command {
     Command {
-        metadata: CommandMetaData {
-            name: name.to_string(),
-            description: description.to_string(),
-        },
+        metadata: CommandMetaData::new(name, description),
         strategy: Arc::new(RecorderStrategy { calls, error }),
-        children: Vec::new(),
     }
 }
 
@@ -111,13 +107,13 @@ fn run_from_args_routes_trailing_arguments_to_strategy() {
 }
 
 #[test]
-fn run_from_args_supports_nested_command_paths() {
+fn strategy_receives_subtask_tokens_for_chain_of_responsibility() {
     let core = CliCore::new();
     let calls = Arc::new(Mutex::new(Vec::new()));
 
     core.register(build_recorder_functionality(
-        "test all",
-        "run all tests",
+        "test",
+        "test root",
         Arc::clone(&calls),
         None,
     ));
@@ -134,119 +130,7 @@ fn run_from_args_supports_nested_command_paths() {
 
     let guard = calls.lock().expect("call log lock poisoned");
     assert_eq!(guard.len(), 1);
-    assert_eq!(guard[0], vec!["--fast".to_string()]);
-}
-
-#[test]
-fn nested_dispatch_prefers_longest_matching_command_path() {
-    let core = CliCore::new();
-    let parent_calls = Arc::new(Mutex::new(Vec::new()));
-    let child_calls = Arc::new(Mutex::new(Vec::new()));
-
-    core.register(build_recorder_functionality(
-        "test",
-        "run default test command",
-        Arc::clone(&parent_calls),
-        None,
-    ));
-    core.register(build_recorder_functionality(
-        "test all",
-        "run all tests",
-        Arc::clone(&child_calls),
-        None,
-    ));
-
-    let args = vec![
-        "cli-core".to_string(),
-        "test".to_string(),
-        "all".to_string(),
-        "target-a".to_string(),
-    ];
-
-    let result = core.try_run_from_args(&args);
-    assert!(result.is_ok());
-
-    let parent_guard = parent_calls.lock().expect("call log lock poisoned");
-    let child_guard = child_calls.lock().expect("call log lock poisoned");
-    assert!(parent_guard.is_empty());
-    assert_eq!(child_guard.len(), 1);
-    assert_eq!(child_guard[0], vec!["target-a".to_string()]);
-}
-
-#[test]
-fn nested_tree_registration_routes_child_without_name_duplication() {
-    let core = CliCore::new();
-    let calls = Arc::new(Mutex::new(Vec::new()));
-
-    core.register(Command {
-        metadata: CommandMetaData {
-            name: "test".to_string(),
-            description: "test root".to_string(),
-        },
-        strategy: Arc::new(RecorderStrategy {
-            calls: Arc::new(Mutex::new(Vec::new())),
-            error: None,
-        }),
-        children: vec![Command {
-            metadata: CommandMetaData {
-                name: "all".to_string(),
-                description: "run all tests".to_string(),
-            },
-            strategy: Arc::new(RecorderStrategy {
-                calls: Arc::clone(&calls),
-                error: None,
-            }),
-            children: Vec::new(),
-        }],
-    });
-
-    let args = vec![
-        "cli-core".to_string(),
-        "test".to_string(),
-        "all".to_string(),
-        "--fast".to_string(),
-    ];
-
-    let result = core.try_run_from_args(&args);
-    assert!(result.is_ok());
-
-    let guard = calls.lock().expect("call log lock poisoned");
-    assert_eq!(guard.len(), 1);
-    assert_eq!(guard[0], vec!["--fast".to_string()]);
-}
-
-#[test]
-fn get_children_returns_direct_nested_commands_with_full_paths() {
-    let core = CliCore::new();
-
-    core.register(Command {
-        metadata: CommandMetaData {
-            name: "test".to_string(),
-            description: "test root".to_string(),
-        },
-        strategy: Arc::new(RecorderStrategy {
-            calls: Arc::new(Mutex::new(Vec::new())),
-            error: None,
-        }),
-        children: vec![Command {
-            metadata: CommandMetaData {
-                name: "all".to_string(),
-                description: "run all tests".to_string(),
-            },
-            strategy: Arc::new(RecorderStrategy {
-                calls: Arc::new(Mutex::new(Vec::new())),
-                error: None,
-            }),
-            children: Vec::new(),
-        }],
-    });
-
-    let children = core
-        .get_children("test")
-        .expect("test should have child commands");
-    assert_eq!(children.len(), 1);
-    assert_eq!(children[0].metadata.name, "test all");
-    assert_eq!(children[0].metadata.description, "run all tests");
+    assert_eq!(guard[0], vec!["all".to_string(), "--fast".to_string()]);
 }
 
 #[test]
@@ -410,4 +294,81 @@ fn wrapper_calls_do_not_share_runtime_state() {
     assert!(!first_section.contains("beta command"));
     assert!(second_section.contains("beta command"));
     assert!(!second_section.contains("alpha command"));
+}
+
+#[test]
+fn subcommand_router_dispatches_recursively_to_deep_children() {
+    let core = CliCore::new();
+    let deep_calls = Arc::new(Mutex::new(Vec::new()));
+    let deep_calls_for_leaf = Arc::clone(&deep_calls);
+
+    let deep_leaf = Command::from_fn("leaf", "deep leaf", move |args| {
+        deep_calls_for_leaf
+            .lock()
+            .expect("call log lock poisoned")
+            .push(args);
+        Ok(())
+    });
+
+    let level_two = SubcommandRouter::new().register(Command {
+        metadata: CommandMetaData::new("level2", "second level"),
+        strategy: Arc::new(SubcommandRouter::new().register(deep_leaf)),
+    });
+
+    let root = Command {
+        metadata: CommandMetaData::new("tool", "tool root"),
+        strategy: Arc::new(SubcommandRouter::new().register(Command {
+            metadata: CommandMetaData::new("level1", "first level"),
+            strategy: Arc::new(level_two),
+        })),
+    };
+
+    core.register(root);
+
+    let args = vec![
+        "app".to_string(),
+        "tool".to_string(),
+        "level1".to_string(),
+        "level2".to_string(),
+        "leaf".to_string(),
+        "--flag".to_string(),
+        "value".to_string(),
+    ];
+
+    assert!(core.try_run_from_args(&args).is_ok());
+
+    let guard = deep_calls.lock().expect("call log lock poisoned");
+    assert_eq!(guard.len(), 1);
+    assert_eq!(guard[0], vec!["--flag".to_string(), "value".to_string()]);
+}
+
+#[test]
+fn help_renderer_includes_recursive_subcommands_from_router_catalog() {
+    let core = CliCore::new();
+
+    let root = Command {
+        metadata: CommandMetaData::new("tool", "tool root"),
+        strategy: Arc::new(SubcommandRouter::new().register(Command {
+            metadata: CommandMetaData::new("child", "child command"),
+            strategy: Arc::new(SubcommandRouter::new().register(Command::from_fn(
+                "leaf",
+                "leaf command",
+                |_| Ok(()),
+            ))),
+        })),
+    };
+
+    core.register(root);
+
+    let args = vec!["app".to_string()];
+    let result = core.try_run_from_args(&args);
+
+    match result {
+        Err(CliCoreError::MissingCommand { help }) => {
+            assert!(help.contains("tool: tool root"));
+            assert!(help.contains("tool child: child command"));
+            assert!(help.contains("tool child leaf: leaf command"));
+        }
+        _ => panic!("expected missing command error"),
+    }
 }

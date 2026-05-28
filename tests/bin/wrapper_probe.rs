@@ -13,20 +13,12 @@ impl CommandStrategy for ProbeStrategy {
 fn main() {
     println!("--FIRST--");
     core::run_with_commands(&[Command {
-        metadata: CommandMetaData {
-            name: "alpha".to_string(),
-            description: "alpha command".to_string(),
-        },
+        metadata: CommandMetaData::new("alpha", "alpha command"),
         strategy: Arc::new(ProbeStrategy),
-        children: Vec::new(),
     }]);
     println!("--SECOND--");
     core::run_with_commands(&[Command {
-        metadata: CommandMetaData {
-            name: "beta".to_string(),
-            description: "beta command".to_string(),
-        },
+        metadata: CommandMetaData::new("beta", "beta command"),
         strategy: Arc::new(ProbeStrategy),
-        children: Vec::new(),
     }]);
 }

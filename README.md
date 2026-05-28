@@ -1,131 +1,164 @@
 # CLI-Core
 
-CLI-Core is a small Rust library for building command-line applications with an instance-owned command registry, a built-in help command, and a cleaner way to connect parsed arguments to feature implementations.
+CLI-Core is a Rust library for command dispatch with an instance-owned runtime.
 
-## Why this crate is required
+The current architecture is intentionally simple:
 
-Most CLI applications start with an argument parser and a set of registered commands. That works for simple tools, but it often leaves the actual command handling tangled inside `main`, or spread across ad hoc parsing branches that are hard to reuse.
+- `Command` is a metadata wrapper plus strategy reference
+- `CommandStrategy` is responsible for runtime behavior
+- subtask/chained routing is handled inside strategies (chain of responsibility)
+- help output is rendered from command metadata through a pluggable `HelpRenderer`
 
-CLI-Core solves that by moving the command contract into a shared core:
+## Core Concepts
 
-- commands are registered once
-- each command is backed by a feature implementation
-- `main` only initializes the registry and dispatches the incoming arguments
-- help text is generated from the registered features instead of being maintained separately
+### Command model
 
-This gives you a more portable structure than a parser-only approach. The command layer is expressed as reusable functionality, so the same feature implementation can be wired into a binary without coupling the CLI entry point to the business logic.
+`Command` does not own a subcommand tree. It contains:
 
-It provides:
+- `metadata: CommandMetaData`
+- `strategy: Arc<dyn CommandStrategy>`
 
-- an instance-owned `core::CliCore` runtime with lazy registry initialization
-- a `CLIStrategy` trait for defining command behavior
-- typed strategy errors via `StrategyError` and `StrategyErrorKind`
-- a built-in `help` strategy
-- `run_with_initializers` convenience wrappers for the default global instance
+`CommandMetaData` includes required and optional help-facing fields:
 
-Without it, each binary would need to reimplement command registration, lookup, dispatch, and help output on its own, which usually leads to tightly coupled CLI code.
+- required: `name`, `description`
+- optional: `usage`, `long_description`, `examples`, `options`, `aliases`
 
-## How to use it
+Use `CommandMetaData::new(...)` and builder-style metadata methods such as `with_usage(...)`, `with_examples(...)`, and `with_options(...)`.
 
-### 1. Implement a command strategy
+### Strategy model
+
+`CommandStrategy` defines one method:
 
 ```rust
-use cli_core::{CLIStrategy, StrategyError};
+fn execute(&self, args: Vec<String>) -> Result<(), StrategyError>
+```
+
+`CliCore` resolves `argv[1]` as the command name and forwards `argv[2..]` to `execute`.
+If you need nested behavior (for example `test all --fast`), implement it in your strategy.
+
+### Help rendering
+
+Help is rendered from registered command metadata via `HelpRenderer`.
+
+Default behavior uses `PlainTextHelpRenderer`, configured in `CoreConfig::new()`.
+You can inject a custom renderer with `CoreConfig::with_help_renderer(...)`.
+
+## Quick Start
+
+### 1. Define a strategy
+
+```rust
+use cli_core::{CommandStrategy, StrategyError};
 
 struct NewProject;
 
-impl CLIStrategy for NewProject {
- fn execute(&self, args: Vec<String>) -> Result<(), StrategyError> {
-  let project_name = args
-   .first()
-   .cloned()
-   .ok_or_else(|| StrategyError::invalid_arguments("missing <project_name>"))?;
+impl CommandStrategy for NewProject {
+    fn execute(&self, args: Vec<String>) -> Result<(), StrategyError> {
+        let project_name = args
+            .first()
+            .cloned()
+            .ok_or_else(|| StrategyError::invalid_arguments("missing <project_name>"))?;
 
-  println!("Creating project: {project_name}");
-  Ok(())
- }
-
- fn help(&self) -> String {
-  "new <project_name> - create a new project".to_string()
- }
+        println!("creating project: {project_name}");
+        Ok(())
+    }
 }
 ```
 
-### 2. Register your commands with initializers
+### 2. Register commands
 
 ```rust
 use std::sync::Arc;
-use cli_core::Functionality;
+use cli_core::{CliCore, Command, CommandMetaData};
 
-fn register_new() -> Functionality {
- Functionality {
-  name: "new".to_string(),
-  description: "Create a new project".to_string(),
-  strategy: Arc::new(NewProject),
- }
-}
+let core = CliCore::new();
+core.register(Command {
+    metadata: CommandMetaData::new("new", "Create a new project")
+        .with_usage("new <project_name>")
+        .with_examples(vec!["new my_app".to_string()]),
+    strategy: Arc::new(NewProject),
+});
 ```
 
-### 3. Run the CLI from `main`
-
-Preferred: explicit instance ownership.
+### 3. Run dispatch
 
 ```rust
-fn main() {
- let core = cli_core::core::CliCore::new();
- core.run_with_initializers(&[register_new]);
-}
+core.run_with_commands(&[]);
 ```
 
-Compatibility wrapper (uses a default global instance):
+Or use crate-level helpers:
 
 ```rust
-fn main() {
- cli_core::run_with_initializers(&[register_new]);
-}
+cli_core::run_with_commands(&[]);
 ```
 
-### 4. Optional: run against explicit args (embedding/tests)
+### 4. Run with explicit args (tests/embedding)
 
 ```rust
-fn run_embedded(args: Vec<String>) -> Result<(), cli_core::core::CliCoreError> {
- let core = cli_core::core::CliCore::new();
- core.register(register_new());
- core.try_run_from_args(&args)
+use cli_core::CliCoreError;
+
+fn run_embedded(args: Vec<String>) -> Result<(), CliCoreError> {
+    let core = CliCore::new();
+    core.try_run_from_args(&args)
 }
 ```
 
-## Example usage
+## Configuring The Runtime
 
-```bash
-cargo run -- help
-cargo run -- new my_project
+`CoreConfig` is runtime-owned and immutable after `CliCore::create(config)`.
+
+```rust
+use cli_core::{CliCore, CoreConfig, LockPoisonPolicy};
+
+let config = CoreConfig::new()
+    .with_lock_poison_policy(LockPoisonPolicy::Recover);
+
+let core = CliCore::create(config);
 ```
 
-The first argument selects the command. The built-in `help` command lists the registered functionalities and their descriptions.
+## Custom Help Rendering
 
-## Command flow
+```rust
+use cli_core::{Command, HelpRenderer};
 
-1. `CliCore` lazily initializes a registry and registers built-in `help`.
-2. The registry always contains the default `help` strategy.
-3. The CLI reads the first argument as the command name.
-4. The strategy receives only trailing command arguments (`argv[2..]`).
-5. If strategy validation or execution fails, the error bubbles up from the strategy.
+struct JsonHelpRenderer;
 
-## Relation to argument parsers
+impl HelpRenderer for JsonHelpRenderer {
+    fn render(&self, caller: &str, commands: &[Command]) -> String {
+        format!("{{\"bin\":\"{}\",\"command_count\":{}}}", caller, commands.len())
+    }
+}
+```
 
-Argument parsers usually answer the question, "How do I turn argv into structured input?" CLI-Core focuses on the next step: "Which feature implementation should handle this command, and how do I keep that mapping portable and reusable?"
+Use it with `CoreConfig::with_help_renderer(...)`.
 
-In practice, that means you can still use argument parsing concepts at the edges, but the core library owns command registration, command lookup, and strategy execution.
+## Proc Macro (`#[cli]`)
 
-## Error model
+The `#[cli]` macro generates a strategy wrapper type from a function that matches `execute` shape:
 
-- Entry routing errors are returned as `CliCoreError`.
-- Strategy-level failures are returned as `StrategyError` with kinds: `InvalidArguments`, `Execution`, `Internal`.
-- `CliCoreError::StrategyExecution` preserves the original `StrategyError` as source.
+```rust
+use cli_core::{cli, StrategyError};
+
+#[cli]
+fn list_files(&self, args: Vec<String>) -> Result<(), StrategyError> {
+    println!("args: {args:?}");
+    Ok(())
+}
+```
+
+This generates `ListFiles` with `ListFiles::new()` and a `list_files_strategy()` factory.
+
+## Error Model
+
+- routing errors: `CliCoreError`
+- strategy errors: `StrategyError` with kinds
+  - `InvalidArguments`
+  - `Execution`
+  - `Internal`
+- `CliCoreError::StrategyExecution` retains the original strategy error as source
 
 ## Notes
 
-- Commands are discovered from the registry at runtime.
-- The help output is generated from the current `CliCore` registry, so it stays in sync with registered commands.
-- This crate is intended to be used as a shared core for binaries that need consistent command dispatch.
+- command lookup is flat by command name
+- help is metadata-driven, not strategy-method-driven
+- strategy implementations own deeper argument interpretation and chaining
