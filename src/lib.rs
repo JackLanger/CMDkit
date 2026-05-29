@@ -5,8 +5,8 @@ pub mod cli;
 pub mod core;
 
 pub use cli::{
-    Command, CommandBuilder, CommandMetaData, CommandStrategy, FunctionStrategy, Opt,
-    StrategyError, StrategyErrorKind, SubcommandCatalog, SubcommandRouter, Switch, command,
+    Command, CommandBuilder, CommandMetaData, CommandStrategy, FunctionStrategy, StrategyError,
+    StrategyErrorKind, SubcommandCatalog, SubcommandRouter, Switch, command,
 };
 pub use core::{
     CliCore, CliCoreError, CoreConfig, HelpRenderer, LockPoisonPolicy, PlainTextHelpRenderer,

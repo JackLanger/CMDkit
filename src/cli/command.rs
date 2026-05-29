@@ -7,7 +7,7 @@ use super::{
 
 /// Declarative value-taking option metadata.
 #[derive(Clone)]
-pub struct Opt {
+pub struct Switch {
     /// Canonical option name, for example: "path".
     pub name: String,
     /// Human-readable description for help output.
@@ -16,7 +16,7 @@ pub struct Opt {
     pub aliases: Vec<String>,
 }
 
-impl Opt {
+impl Switch {
     /// Creates a value-taking option declaration.
     pub fn new(name: impl Into<String>, description: impl Into<String>) -> Self {
         Self {
@@ -33,10 +33,10 @@ impl Opt {
     }
 }
 
-/// Declarative flag metadata with a numeric payload for enum mapping.
 #[derive(Clone)]
-pub struct Switch {
-    /// Canonical switch name, for example: "verbose".
+pub struct Argument {
+    /// Canonical
+    /// Argument name, for example: "verbose".
     pub name: String,
     /// Human-readable description for help output.
     pub description: String,
@@ -46,8 +46,9 @@ pub struct Switch {
     pub value: i32,
 }
 
-impl Switch {
-    /// Creates a switch declaration with the given numeric payload.
+impl Argument {
+    /// Creates a
+    /// Argument declaration with the given numeric payload.
     pub fn new(name: impl Into<String>, description: impl Into<String>, value: i32) -> Self {
         Self {
             name: name.into(),
@@ -57,7 +58,8 @@ impl Switch {
         }
     }
 
-    /// Adds alias spellings for this switch.
+    /// Adds alias spellings for this
+    /// Argument.
     pub fn with_aliases(mut self, aliases: Vec<String>) -> Self {
         self.aliases = aliases;
         self
@@ -78,9 +80,10 @@ pub struct CommandMetaData {
     /// Optional command examples shown in help output.
     pub examples: Vec<String>,
     /// Optional option/flag descriptions shown in help output.
-    pub options: Vec<Opt>,
-    /// Optional switch/flag descriptions shown in help output.
-    pub switches: Vec<Switch>,
+    pub options: Vec<Switch>,
+    /// Optional
+    /// Argument/flag descriptions shown in help output.
+    pub arguments: Vec<Argument>,
     /// Optional aliases accepted by command discovery layers.
     pub aliases: Vec<String>,
 }
@@ -95,7 +98,7 @@ impl CommandMetaData {
             long_description: None,
             examples: Vec::new(),
             options: Vec::new(),
-            switches: Vec::new(),
+            arguments: Vec::new(),
             aliases: Vec::new(),
         }
     }
@@ -119,14 +122,15 @@ impl CommandMetaData {
     }
 
     /// Adds value-taking option definitions for this command.
-    pub fn with_options(mut self, options: Vec<Opt>) -> Self {
+    pub fn with_options(mut self, options: Vec<Switch>) -> Self {
         self.options = options;
         self
     }
 
-    /// Adds switch/flag definitions for this command.
-    pub fn with_switches(mut self, switches: Vec<Switch>) -> Self {
-        self.switches = switches;
+    /// Adds
+    /// Argument/flag definitions for this command.
+    pub fn with_arguments(mut self, arguments: Vec<Argument>) -> Self {
+        self.arguments = arguments;
         self
     }
 
@@ -159,7 +163,9 @@ impl Command {
 
     /// Executes this command after parsing raw argv-style arguments into the strategy contract.
     pub fn execute(&self, args: Vec<String>) -> Result<(), StrategyError> {
-        let invocation = self.parse_invocation(args)?;
+        let invocation = parser::ArgumentParser::parse(args, &self.metadata, |token| {
+            self.matches_subcommand(token)
+        })?;
         self.strategy.execute(
             invocation.options,
             invocation.arguments,
@@ -188,91 +194,6 @@ impl Command {
         CommandBuilder::new(name, description)
     }
 
-    fn parse_invocation(&self, args: Vec<String>) -> Result<ParsedInvocation, StrategyError> {
-        let mut options = Vec::new();
-        let mut arguments = HashMap::new();
-        let mut index = 0;
-        let has_declared_inputs =
-            !self.metadata.options.is_empty() || !self.metadata.switches.is_empty();
-
-        while index < args.len() {
-            let token = &args[index];
-
-            if self.matches_subcommand(token) {
-                break;
-            }
-
-            let Option::Some(flag) = token.strip_prefix("--") else {
-                if has_declared_inputs {
-                    return Err(StrategyError::invalid_arguments(format!(
-                        "unexpected argument '{token}'. positional arguments must use a flag before subcommands"
-                    )));
-                }
-
-                return Err(StrategyError::invalid_arguments(format!(
-                    "unexpected argument '{token}'. positional arguments must use a flag before subcommands"
-                )));
-            };
-
-            if let Option::Some(name) = self.resolve_switch(flag) {
-                options.push(name);
-                index += 1;
-                continue;
-            }
-
-            if let Option::Some(option) = self.resolve_option(flag) {
-                if let Some((key, value)) = flag.split_once('=') {
-                    arguments.insert(key.to_string(), value.to_string());
-                    index += 1;
-                    continue;
-                }
-
-                let Some(next) = args.get(index + 1) else {
-                    return Err(StrategyError::invalid_arguments(format!(
-                        "missing value for option '--{}'",
-                        option.name
-                    )));
-                };
-
-                if next.starts_with("--") || self.matches_subcommand(next) {
-                    return Err(StrategyError::invalid_arguments(format!(
-                        "missing value for option '--{}'",
-                        option.name
-                    )));
-                }
-
-                arguments.insert(option.name, next.clone());
-                index += 2;
-                continue;
-            }
-
-            if let Some((key, value)) = flag.split_once('=') {
-                arguments.insert(key.to_string(), value.to_string());
-                index += 1;
-                continue;
-            }
-
-            if let Some(next) = args.get(index + 1) {
-                if next.starts_with("--") || self.matches_subcommand(next) {
-                    options.push(flag.to_string());
-                    index += 1;
-                } else {
-                    arguments.insert(flag.to_string(), next.clone());
-                    index += 2;
-                }
-            } else {
-                options.push(flag.to_string());
-                index += 1;
-            }
-        }
-
-        Ok(ParsedInvocation {
-            options,
-            arguments,
-            subcommands: args[index..].to_vec(),
-        })
-    }
-
     fn matches_subcommand(&self, token: &str) -> bool {
         self.subcommand_catalog().is_some_and(|catalog| {
             catalog.subcommands().into_iter().any(|command| {
@@ -282,25 +203,6 @@ impl Command {
         })
     }
 
-    fn resolve_option(&self, token: &str) -> Option<Opt> {
-        self.metadata
-            .options
-            .iter()
-            .find(|option| {
-                option.name == token || option.aliases.iter().any(|alias| alias == token)
-            })
-            .cloned()
-    }
-
-    fn resolve_switch(&self, token: &str) -> Option<String> {
-        self.metadata
-            .switches
-            .iter()
-            .find(|switch| {
-                switch.name == token || switch.aliases.iter().any(|alias| alias == token)
-            })
-            .map(|switch| switch.name.clone())
-    }
 }
 
 struct ParsedInvocation {
@@ -380,14 +282,15 @@ impl CommandBuilder {
     }
 
     /// Adds option/flag description entries for this command.
-    pub fn with_options(mut self, options: Vec<Opt>) -> Self {
+    pub fn with_options(mut self, options: Vec<Switch>) -> Self {
         self.metadata = self.metadata.with_options(options);
         self
     }
 
-    /// Adds switch/flag description entries for this command.
-    pub fn with_switches(mut self, switches: Vec<Switch>) -> Self {
-        self.metadata = self.metadata.with_switches(switches);
+    /// Adds
+    /// Argument/flag description entries for this command.
+    pub fn with_arguments(mut self, arguments: Vec<Argument>) -> Self {
+        self.metadata = self.metadata.with_arguments(arguments);
         self
     }
 
@@ -429,5 +332,121 @@ impl CommandBuilder {
 impl From<CommandBuilder> for Command {
     fn from(value: CommandBuilder) -> Self {
         value.build()
+    }
+}
+
+mod parser {
+    use super::{CommandMetaData, ParsedInvocation};
+    use crate::StrategyError;
+
+    pub(super) struct ArgumentParser;
+
+    impl ArgumentParser {
+        pub fn parse<F>(
+            args: Vec<String>,
+            metadata: &CommandMetaData,
+            is_subcommand: F,
+        ) -> Result<ParsedInvocation, StrategyError>
+        where
+            F: Fn(&str) -> bool,
+        {
+            let mut options = Vec::new();
+            let mut arguments = std::collections::HashMap::new();
+            let mut index = 0;
+            let has_declared_inputs =
+                !metadata.options.is_empty() || !metadata.arguments.is_empty();
+
+            while index < args.len() {
+                let token = &args[index];
+
+                if is_subcommand(token) {
+                    break;
+                }
+
+                let Some(flag) = token.strip_prefix("--") else {
+                    return Err(StrategyError::invalid_arguments(format!(
+                        "unexpected argument '{token}'. positional arguments must use a flag before subcommands"
+                    )));
+                };
+
+                if let Some(name) = metadata
+                    .arguments
+                    .iter()
+                    .find(|argument| {
+                        argument.name == flag
+                            || argument.aliases.iter().any(|alias| alias == flag)
+                    })
+                    .map(|argument| argument.name.clone())
+                {
+                    options.push(name);
+                    index += 1;
+                    continue;
+                }
+
+                if let Some(option) = metadata
+                    .options
+                    .iter()
+                    .find(|option| {
+                        option.name == flag || option.aliases.iter().any(|alias| alias == flag)
+                    })
+                    .cloned()
+                {
+                    if let Some((_, value)) = flag.split_once('=') {
+                        arguments.insert(option.name, value.to_string());
+                        index += 1;
+                        continue;
+                    }
+
+                    let Some(next) = args.get(index + 1) else {
+                        return Err(StrategyError::invalid_arguments(format!(
+                            "missing value for option '--{}'",
+                            option.name
+                        )));
+                    };
+
+                    if next.starts_with("--") || is_subcommand(next) {
+                        return Err(StrategyError::invalid_arguments(format!(
+                            "missing value for option '--{}'",
+                            option.name
+                        )));
+                    }
+
+                    arguments.insert(option.name, next.clone());
+                    index += 2;
+                    continue;
+                }
+
+                if let Some((key, value)) = flag.split_once('=') {
+                    arguments.insert(key.to_string(), value.to_string());
+                    index += 1;
+                    continue;
+                }
+
+                if has_declared_inputs {
+                    return Err(StrategyError::invalid_arguments(format!(
+                        "unknown flag '--{flag}'"
+                    )));
+                }
+
+                if let Some(next) = args.get(index + 1) {
+                    if next.starts_with("--") || is_subcommand(next) {
+                        options.push(flag.to_string());
+                        index += 1;
+                    } else {
+                        arguments.insert(flag.to_string(), next.clone());
+                        index += 2;
+                    }
+                } else {
+                    options.push(flag.to_string());
+                    index += 1;
+                }
+            }
+
+            Ok(ParsedInvocation {
+                options,
+                arguments,
+                subcommands: args[index..].to_vec(),
+            })
+        }
     }
 }
