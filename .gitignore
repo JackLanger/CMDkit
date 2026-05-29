@@ -1,1 +1,3 @@
 /target
+/cli-core-macros/target
+/cli-core-macros/Cargo.lock
