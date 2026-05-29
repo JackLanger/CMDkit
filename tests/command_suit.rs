@@ -82,7 +82,11 @@ fn test_command_suit() {
     let dir_path: PathBuf = env::temp_dir().join(format!("cli-core-create-{unique}"));
 
     let core = CliCore::new();
-    core.register(Command::new("create", "Create a directory", CreateDirectory::new()));
+    core.register(Command::new(
+        "create",
+        "Create a directory",
+        CreateDirectory::new(),
+    ));
 
     let args = vec![
         "app".to_string(),
@@ -144,17 +148,19 @@ fn command_builder_registers_recursive_subcommands_without_router_exposure() {
     core.register(
         command("tool", "tool root")
             .subcommand(command("run", "run tasks").subcommand(
-                command("one", "run one task").handler_fn(move |options, arguments, subcommands| {
-                    captured_for_handler
-                        .lock()
-                        .expect("capture lock should not be poisoned")
-                        .push(vec![
-                            format!("options={options:?}"),
-                            format!("arguments={arguments:?}"),
-                            format!("subcommands={subcommands:?}"),
-                        ]);
-                    Ok(())
-                }),
+                command("one", "run one task").handler_fn(
+                    move |options, arguments, subcommands| {
+                        captured_for_handler
+                            .lock()
+                            .expect("capture lock should not be poisoned")
+                            .push(vec![
+                                format!("options={options:?}"),
+                                format!("arguments={arguments:?}"),
+                                format!("subcommands={subcommands:?}"),
+                            ]);
+                        Ok(())
+                    },
+                ),
             ))
             .build(),
     );

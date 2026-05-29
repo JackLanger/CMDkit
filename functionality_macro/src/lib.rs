@@ -50,7 +50,11 @@ pub fn cli(attr: TokenStream, item: TokenStream) -> TokenStream {
         Some(FnArg::Typed(PatType { pat, ty, .. })) => {
             match ty.as_ref() {
                 Type::Path(path)
-                    if path.path.segments.last().is_some_and(|segment| segment.ident == "Vec") => {}
+                    if path
+                        .path
+                        .segments
+                        .last()
+                        .is_some_and(|segment| segment.ident == "Vec") => {}
                 _ => {
                     return syn::Error::new_spanned(
                         ty,
@@ -77,7 +81,11 @@ pub fn cli(attr: TokenStream, item: TokenStream) -> TokenStream {
         Some(FnArg::Typed(PatType { pat, ty, .. })) => {
             match ty.as_ref() {
                 Type::Path(path)
-                    if path.path.segments.last().is_some_and(|segment| segment.ident == "HashMap") => {}
+                    if path
+                        .path
+                        .segments
+                        .last()
+                        .is_some_and(|segment| segment.ident == "HashMap") => {}
                 _ => {
                     return syn::Error::new_spanned(
                         ty,
@@ -113,7 +121,11 @@ pub fn cli(attr: TokenStream, item: TokenStream) -> TokenStream {
 
             match ty.as_ref() {
                 Type::Path(path)
-                    if path.path.segments.last().is_some_and(|segment| segment.ident == "Vec") => {}
+                    if path
+                        .path
+                        .segments
+                        .last()
+                        .is_some_and(|segment| segment.ident == "Vec") => {}
                 _ => {
                     return syn::Error::new_spanned(
                         ty,

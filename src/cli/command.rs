@@ -202,7 +202,6 @@ impl Command {
             })
         })
     }
-
 }
 
 struct ParsedInvocation {
@@ -373,8 +372,7 @@ mod parser {
                     .arguments
                     .iter()
                     .find(|argument| {
-                        argument.name == flag
-                            || argument.aliases.iter().any(|alias| alias == flag)
+                        argument.name == flag || argument.aliases.iter().any(|alias| alias == flag)
                     })
                     .map(|argument| argument.name.clone())
                 {
