@@ -11,7 +11,6 @@ pub use cli::{
 pub use core::{
     CliCore, CliCoreError, CoreConfig, HelpRenderer, LockPoisonPolicy, PlainTextHelpRenderer,
 };
-pub use functionality_macro::cli;
 
 /// Runs a fresh default [`CliCore`] instance with pre-built commands.
 pub fn run_with_commands(commands: &[Command]) {

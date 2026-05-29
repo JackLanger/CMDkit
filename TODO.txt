@@ -51,7 +51,7 @@ P3
 [x] Allow for options and flags being passed to further alter the functionality of the CLI.
     - Status: done. Strategy execution now receives parsed `options`, `arguments`, and `subcommands`, and command execution parses flag/value pairs before dispatching nested commands.
     - Problem: trailing args were forwarded raw; there was no built-in option/flag interpretation contract.
-    - Scope: src/cli.rs public API + src/core.rs dispatch + functionality_macro/ + tests/
+    - Scope: src/cli.rs public API + src/core.rs dispatch + cli-core-macros/ + tests/
     - Acceptance: a stable strategy-facing parsed contract exists and nested dispatch coverage validates flag/value parsing plus subcommand boundaries.
 
 Architecture re-evaluation (2026-05-27)

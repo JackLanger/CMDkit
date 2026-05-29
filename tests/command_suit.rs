@@ -1,36 +1,6 @@
-use std::{
-    env,
-    path::PathBuf,
-    sync::{Arc, Mutex},
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::sync::{Arc, Mutex};
 
-use cli_core::{CliCore, Command, StrategyError, cli, command};
-
-#[cli]
-fn ok_strategy(
-    &self,
-    _options: Vec<String>,
-    _arguments: std::collections::HashMap<String, String>,
-    _subcommands: Vec<String>,
-) -> Result<(), StrategyError> {
-    Ok(())
-}
-
-#[cli]
-fn create_directory(
-    &self,
-    _options: Vec<String>,
-    arguments: std::collections::HashMap<String, String>,
-    _subcommands: Vec<String>,
-) -> Result<(), StrategyError> {
-    let path = arguments
-        .get("path")
-        .ok_or_else(|| StrategyError::invalid_arguments("missing path"))?;
-
-    std::fs::create_dir(std::path::Path::new(path))
-        .map_err(|e| StrategyError::execution(format!("Failed to create directory: {e}")))
-}
+use cli_core::{CliCore, Command, command};
 
 #[test]
 fn strategy_chain_handles_subtask_tokens() {
@@ -71,33 +41,6 @@ fn strategy_chain_handles_subtask_tokens() {
     assert!(guard[0][1].contains("flag"));
     assert!(guard[0][1].contains("value"));
     assert!(guard[0][2].contains("[]"));
-}
-
-#[test]
-fn test_command_suit() {
-    let unique = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system time should be after unix epoch")
-        .as_nanos();
-    let dir_path: PathBuf = env::temp_dir().join(format!("cli-core-create-{unique}"));
-
-    let core = CliCore::new();
-    core.register(Command::new(
-        "create",
-        "Create a directory",
-        CreateDirectory::new(),
-    ));
-
-    let args = vec![
-        "app".to_string(),
-        "create".to_string(),
-        "--path".to_string(),
-        dir_path.to_string_lossy().into_owned(),
-    ];
-
-    assert!(core.try_run_from_args(&args).is_ok());
-    assert!(dir_path.exists());
-    std::fs::remove_dir(&dir_path).expect("Failed to clean up test directory");
 }
 
 #[test]

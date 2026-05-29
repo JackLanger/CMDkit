@@ -16,4 +16,3 @@ path = "src/bin/wrapper_probe.rs"
 
 
 [dependencies]
-functionality_macro = { version = "0.1.0", path = "functionality_macro" }
