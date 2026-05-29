@@ -1,12 +1,12 @@
-/// Public CLI primitives: strategy trait, command model, and strategy error types.
+/// Public CLI primitives for implementation-first command trees, parsed strategy dispatch, and strategy error types.
 pub mod cli;
 
-/// Instance-owned CLI runtime and routing error types.
+/// Instance-owned CLI runtime, routing error types, and help rendering.
 pub mod core;
 
 pub use cli::{
-    Command, CommandBuilder, CommandMetaData, CommandStrategy, FunctionStrategy, StrategyError,
-    StrategyErrorKind, SubcommandCatalog, SubcommandRouter, command,
+    Command, CommandBuilder, CommandMetaData, CommandStrategy, FunctionStrategy, Opt,
+    StrategyError, StrategyErrorKind, SubcommandCatalog, SubcommandRouter, Switch, command,
 };
 pub use core::{
     CliCore, CliCoreError, CoreConfig, HelpRenderer, LockPoisonPolicy, PlainTextHelpRenderer,

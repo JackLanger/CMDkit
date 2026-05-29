@@ -1,9 +1,68 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, option::Option, sync::Arc};
 
 use super::strategy::FallbackSubcommandStrategy;
 use super::{
     CommandStrategy, FunctionStrategy, StrategyError, SubcommandCatalog, SubcommandRouter,
 };
+
+/// Declarative value-taking option metadata.
+#[derive(Clone)]
+pub struct Opt {
+    /// Canonical option name, for example: "path".
+    pub name: String,
+    /// Human-readable description for help output.
+    pub description: String,
+    /// Alternative spellings accepted during parsing.
+    pub aliases: Vec<String>,
+}
+
+impl Opt {
+    /// Creates a value-taking option declaration.
+    pub fn new(name: impl Into<String>, description: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            description: description.into(),
+            aliases: Vec::new(),
+        }
+    }
+
+    /// Adds alias spellings for this option.
+    pub fn with_aliases(mut self, aliases: Vec<String>) -> Self {
+        self.aliases = aliases;
+        self
+    }
+}
+
+/// Declarative flag metadata with a numeric payload for enum mapping.
+#[derive(Clone)]
+pub struct Switch {
+    /// Canonical switch name, for example: "verbose".
+    pub name: String,
+    /// Human-readable description for help output.
+    pub description: String,
+    /// Alternative spellings accepted during parsing.
+    pub aliases: Vec<String>,
+    /// Numeric payload that can be mapped to an enum or bit mask.
+    pub value: i32,
+}
+
+impl Switch {
+    /// Creates a switch declaration with the given numeric payload.
+    pub fn new(name: impl Into<String>, description: impl Into<String>, value: i32) -> Self {
+        Self {
+            name: name.into(),
+            description: description.into(),
+            aliases: Vec::new(),
+            value,
+        }
+    }
+
+    /// Adds alias spellings for this switch.
+    pub fn with_aliases(mut self, aliases: Vec<String>) -> Self {
+        self.aliases = aliases;
+        self
+    }
+}
 
 /// User-facing metadata for a single CLI command.
 #[derive(Clone)]
@@ -19,7 +78,9 @@ pub struct CommandMetaData {
     /// Optional command examples shown in help output.
     pub examples: Vec<String>,
     /// Optional option/flag descriptions shown in help output.
-    pub options: Vec<String>,
+    pub options: Vec<Opt>,
+    /// Optional switch/flag descriptions shown in help output.
+    pub switches: Vec<Switch>,
     /// Optional aliases accepted by command discovery layers.
     pub aliases: Vec<String>,
 }
@@ -34,6 +95,7 @@ impl CommandMetaData {
             long_description: None,
             examples: Vec::new(),
             options: Vec::new(),
+            switches: Vec::new(),
             aliases: Vec::new(),
         }
     }
@@ -56,9 +118,15 @@ impl CommandMetaData {
         self
     }
 
-    /// Adds option/flag description entries for this command.
-    pub fn with_options(mut self, options: Vec<String>) -> Self {
+    /// Adds value-taking option definitions for this command.
+    pub fn with_options(mut self, options: Vec<Opt>) -> Self {
         self.options = options;
+        self
+    }
+
+    /// Adds switch/flag definitions for this command.
+    pub fn with_switches(mut self, switches: Vec<Switch>) -> Self {
+        self.switches = switches;
         self
     }
 
@@ -124,6 +192,8 @@ impl Command {
         let mut options = Vec::new();
         let mut arguments = HashMap::new();
         let mut index = 0;
+        let has_declared_inputs =
+            !self.metadata.options.is_empty() || !self.metadata.switches.is_empty();
 
         while index < args.len() {
             let token = &args[index];
@@ -132,11 +202,49 @@ impl Command {
                 break;
             }
 
-            let Some(flag) = token.strip_prefix("--") else {
+            let Option::Some(flag) = token.strip_prefix("--") else {
+                if has_declared_inputs {
+                    return Err(StrategyError::invalid_arguments(format!(
+                        "unexpected argument '{token}'. positional arguments must use a flag before subcommands"
+                    )));
+                }
+
                 return Err(StrategyError::invalid_arguments(format!(
                     "unexpected argument '{token}'. positional arguments must use a flag before subcommands"
                 )));
             };
+
+            if let Option::Some(name) = self.resolve_switch(flag) {
+                options.push(name);
+                index += 1;
+                continue;
+            }
+
+            if let Option::Some(option) = self.resolve_option(flag) {
+                if let Some((key, value)) = flag.split_once('=') {
+                    arguments.insert(key.to_string(), value.to_string());
+                    index += 1;
+                    continue;
+                }
+
+                let Some(next) = args.get(index + 1) else {
+                    return Err(StrategyError::invalid_arguments(format!(
+                        "missing value for option '--{}'",
+                        option.name
+                    )));
+                };
+
+                if next.starts_with("--") || self.matches_subcommand(next) {
+                    return Err(StrategyError::invalid_arguments(format!(
+                        "missing value for option '--{}'",
+                        option.name
+                    )));
+                }
+
+                arguments.insert(option.name, next.clone());
+                index += 2;
+                continue;
+            }
 
             if let Some((key, value)) = flag.split_once('=') {
                 arguments.insert(key.to_string(), value.to_string());
@@ -172,6 +280,26 @@ impl Command {
                     || command.metadata.aliases.iter().any(|alias| alias == token)
             })
         })
+    }
+
+    fn resolve_option(&self, token: &str) -> Option<Opt> {
+        self.metadata
+            .options
+            .iter()
+            .find(|option| {
+                option.name == token || option.aliases.iter().any(|alias| alias == token)
+            })
+            .cloned()
+    }
+
+    fn resolve_switch(&self, token: &str) -> Option<String> {
+        self.metadata
+            .switches
+            .iter()
+            .find(|switch| {
+                switch.name == token || switch.aliases.iter().any(|alias| alias == token)
+            })
+            .map(|switch| switch.name.clone())
     }
 }
 
@@ -252,8 +380,14 @@ impl CommandBuilder {
     }
 
     /// Adds option/flag description entries for this command.
-    pub fn with_options(mut self, options: Vec<String>) -> Self {
+    pub fn with_options(mut self, options: Vec<Opt>) -> Self {
         self.metadata = self.metadata.with_options(options);
+        self
+    }
+
+    /// Adds switch/flag description entries for this command.
+    pub fn with_switches(mut self, switches: Vec<Switch>) -> Self {
+        self.metadata = self.metadata.with_switches(switches);
         self
     }
 
