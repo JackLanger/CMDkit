@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use cli_core::{Command, CommandStrategy, StrategyError, core};
+use cmdkit::{Command, CommandStrategy, StrategyError, core};
 
 struct ProbeStrategy;
 

@@ -4,7 +4,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use cli_core::{CliCore, Command, StrategyError};
+use cmdkit::{CliCore, Command, StrategyError};
 use cmdkit_macros::cli;
 
 #[cli]

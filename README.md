@@ -62,7 +62,7 @@ You can inject a custom renderer with `CoreConfig::with_help_renderer(...)`.
 ```rust
 use std::collections::HashMap;
 
-use cli_core::{CommandStrategy, StrategyError};
+use cmdkit::{CommandStrategy, StrategyError};
 
 struct NewProject;
 
@@ -89,7 +89,7 @@ impl CommandStrategy for NewProject {
 ### 2. Register commands
 
 ```rust
-use cli_core::{CliCore, Command};
+use cmdkit::{CliCore, Command};
 
 let core = CliCore::new();
 core.register(
@@ -103,7 +103,7 @@ For nested commands, build a tree and let the runtime route to the leaf:
 ```rust
 use std::collections::HashMap;
 
-use cli_core::{command, Command, CommandStrategy, StrategyError};
+use cmdkit::{command, Command, CommandStrategy, StrategyError};
 
 struct RunTask;
 
@@ -138,13 +138,13 @@ core.run_with_commands(&[]);
 Or use crate-level helpers:
 
 ```rust
-cli_core::run_with_commands(&[]);
+cmdkit::run_with_commands(&[]);
 ```
 
 ### 4. Run with explicit args (tests/embedding)
 
 ```rust
-use cli_core::CliCoreError;
+use cmdkit::CliCoreError;
 
 fn run_embedded(args: Vec<String>) -> Result<(), CliCoreError> {
     let core = CliCore::new();
@@ -170,7 +170,7 @@ core.try_run_from_args(&args)?;
 `CoreConfig` is runtime-owned and immutable after `CliCore::create(config)`.
 
 ```rust
-use cli_core::{CliCore, CoreConfig, LockPoisonPolicy};
+use cmdkit::{CliCore, CoreConfig, LockPoisonPolicy};
 
 let config = CoreConfig::new()
     .with_lock_poison_policy(LockPoisonPolicy::Recover);
@@ -181,7 +181,7 @@ let core = CliCore::create(config);
 ## Custom help rendering
 
 ```rust
-use cli_core::{Command, HelpRenderer};
+use cmdkit::{Command, HelpRenderer};
 
 struct JsonHelpRenderer;
 
@@ -201,7 +201,7 @@ The `#[cli]` macro lives in the separate `cmdkit-macros` crate. Add it alongside
 ```rust
 use std::collections::HashMap;
 
-use cli_core::StrategyError;
+use cmdkit::StrategyError;
 use cmdkit_macros::cli;
 
 #[cli]

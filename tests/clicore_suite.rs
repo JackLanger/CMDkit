@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use cli_core::{
+use cmdkit::{
     CliCore, CliCoreError, Command, CommandStrategy, StrategyError, StrategyErrorKind,
     SubcommandRouter, command,
 };

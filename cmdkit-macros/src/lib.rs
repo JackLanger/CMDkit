@@ -155,7 +155,7 @@ pub fn cli(attr: TokenStream, item: TokenStream) -> TokenStream {
             _ => {
                 return syn::Error::new_spanned(
                     ty,
-                    "cli strategy functions must return Result<(), cli_core::StrategyError>",
+                    "cli strategy functions must return Result<(), cmdkit::StrategyError>",
                 )
                 .into_compile_error()
                 .into();
@@ -164,7 +164,7 @@ pub fn cli(attr: TokenStream, item: TokenStream) -> TokenStream {
         ReturnType::Default => {
             return syn::Error::new_spanned(
                 &input_fn.sig,
-                "cli strategy functions must return Result<(), cli_core::StrategyError>",
+                "cli strategy functions must return Result<(), cmdkit::StrategyError>",
             )
             .into_compile_error()
             .into();
@@ -188,13 +188,13 @@ pub fn cli(attr: TokenStream, item: TokenStream) -> TokenStream {
             }
         }
 
-        impl ::cli_core::CommandStrategy for #strategy_ident {
+        impl ::cmdkit::CommandStrategy for #strategy_ident {
             fn execute(
                 &self,
                 #options_pat: Vec<String>,
                 #arguments_pat: ::std::collections::HashMap<String, String>,
                 #subcommands_pat: Vec<String>,
-            ) -> Result<(), ::cli_core::StrategyError> {
+            ) -> Result<(), ::cmdkit::StrategyError> {
                 #body
             }
         }

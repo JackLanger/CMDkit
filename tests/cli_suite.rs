@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use cli_core::{CliCore, Command, CommandStrategy, StrategyError};
+use cmdkit::{CliCore, Command, CommandStrategy, StrategyError};
 
 struct TestStrategy;
 struct TestStrategyV2;

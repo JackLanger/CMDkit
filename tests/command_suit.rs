@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use cli_core::{CliCore, Command, command};
+use cmdkit::{CliCore, Command, command};
 
 #[test]
 fn strategy_chain_handles_subtask_tokens() {
