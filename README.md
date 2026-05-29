@@ -196,13 +196,13 @@ Use it with `CoreConfig::with_help_renderer(...)`.
 
 ## Proc macro (`#[cli]`)
 
-The `#[cli]` macro lives in the separate `cli-core-macros` crate. Add it alongside `cli-core` and import it from that package:
+The `#[cli]` macro lives in the separate `cmdkit-macros` crate. Add it alongside `cli-core` and import it from that package:
 
 ```rust
 use std::collections::HashMap;
 
 use cli_core::StrategyError;
-use cli_core_macros::cli;
+use cmdkit_macros::cli;
 
 #[cli]
 fn list_files(
