@@ -1,11 +1,11 @@
 [package]
-name = "cli-core"
+name = "cmdkit"
 version = "0.1.0"
 edition = "2024"
 description = "Core library for CLI tools, providing common functionality and utilities for building command-line applications."
 license = "GPL-3.0-or-later"
-repository = "https://github.com/JackLanger/Cli-Core"
-documentation = "https://docs.rs/cli-core"
+repository = "https://github.com/JackLanger/CMDkit"
+documentation = "https://docs.rs/cmdkit"
 keywords = ["cli", "command", "framework", "parser"]
 categories = ["command-line-interface", "command-line-utilities"]
 readme = "README.md"

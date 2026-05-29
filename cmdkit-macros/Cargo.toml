@@ -2,9 +2,9 @@
 name = "cmdkit-macros"
 version = "0.1.0"
 edition = "2024"
-description = "Procedural macros for cli-core command strategy generation."
+description = "Procedural macros for cmdkit command strategy generation."
 license = "GPL-3.0-or-later"
-repository = "https://github.com/JackLanger/Cli-Core"
+repository = "https://github.com/JackLanger/CMDKit"
 documentation = "https://docs.rs/cmdkit-macros"
 keywords = ["cli", "macro", "proc-macro"]
 categories = [
