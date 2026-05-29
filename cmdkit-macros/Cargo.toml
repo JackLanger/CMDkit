@@ -21,4 +21,4 @@ quote = "1"
 syn = { version = "2", features = ["full"] }
 
 [dev-dependencies]
-cli-core = { path = ".." }
+cmdkit = "0.1.0"
