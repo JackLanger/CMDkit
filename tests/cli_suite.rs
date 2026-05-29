@@ -1,9 +1,6 @@
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
-};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-use cli_core::{CliCore, Command, CommandMetaData, CommandStrategy, StrategyError};
+use cli_core::{CliCore, Command, CommandStrategy, StrategyError};
 
 struct TestStrategy;
 struct TestStrategyV2;
@@ -16,14 +13,24 @@ fn unique_name(prefix: &str) -> String {
 }
 
 impl CommandStrategy for TestStrategy {
-    fn execute(&self, _args: Vec<String>) -> Result<(), StrategyError> {
+    fn execute(
+        &self,
+        _options: Vec<String>,
+        _arguments: std::collections::HashMap<String, String>,
+        _subcommands: Vec<String>,
+    ) -> Result<(), StrategyError> {
         println!("Test strategy executed");
         Ok(())
     }
 }
 
 impl CommandStrategy for TestStrategyV2 {
-    fn execute(&self, _args: Vec<String>) -> Result<(), StrategyError> {
+    fn execute(
+        &self,
+        _options: Vec<String>,
+        _arguments: std::collections::HashMap<String, String>,
+        _subcommands: Vec<String>,
+    ) -> Result<(), StrategyError> {
         println!("Test strategy v2 executed");
         Ok(())
     }
@@ -33,10 +40,7 @@ impl CommandStrategy for TestStrategyV2 {
 fn test_register_and_get() {
     let core = CliCore::new();
     let name = unique_name("register_get");
-    let functionality = Command {
-        metadata: CommandMetaData::new(name.clone(), "A test functionality"),
-        strategy: Arc::new(TestStrategy),
-    };
+    let functionality = Command::new(name.clone(), "A test functionality", TestStrategy);
 
     core.register(functionality.clone());
     let retrieved = core.get(&name).expect("Functionality should be registered");
@@ -51,10 +55,7 @@ fn test_register_and_get() {
 fn test_get_all() {
     let core = CliCore::new();
     let name = unique_name("get_all");
-    let functionality = Command {
-        metadata: CommandMetaData::new(name.clone(), "A test functionality"),
-        strategy: Arc::new(TestStrategy),
-    };
+    let functionality = Command::new(name.clone(), "A test functionality", TestStrategy);
 
     core.register(functionality.clone());
     let all = core.get_all();
@@ -76,15 +77,9 @@ fn test_register_duplicate_name_overwrites() {
     let core = CliCore::new();
     let name = unique_name("duplicate");
 
-    core.register(Command {
-        metadata: CommandMetaData::new(name.clone(), "original"),
-        strategy: Arc::new(TestStrategy),
-    });
+    core.register(Command::new(name.clone(), "original", TestStrategy));
 
-    core.register(Command {
-        metadata: CommandMetaData::new(name.clone(), "updated"),
-        strategy: Arc::new(TestStrategyV2),
-    });
+    core.register(Command::new(name.clone(), "updated", TestStrategyV2));
 
     let retrieved = core.get(&name).expect("Functionality should be registered");
     assert_eq!(retrieved.metadata.description, "updated");
@@ -96,10 +91,7 @@ fn test_instances_are_isolated() {
     let core_b = CliCore::new();
     let name = unique_name("isolated");
 
-    core_a.register(Command {
-        metadata: CommandMetaData::new(name.clone(), "in a"),
-        strategy: Arc::new(TestStrategy),
-    });
+    core_a.register(Command::new(name.clone(), "in a", TestStrategy));
 
     assert!(core_a.get(&name).is_some());
     assert!(core_b.get(&name).is_none());

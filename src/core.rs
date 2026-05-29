@@ -36,7 +36,7 @@ impl HelpRenderer for PlainTextHelpRenderer {
                 command.metadata.description
             ));
 
-            if let Some(catalog) = command.strategy.subcommand_catalog() {
+            if let Some(catalog) = command.subcommand_catalog() {
                 for child in catalog.subcommands() {
                     let child_path = format!("{path} {}", child.metadata.name);
                     render_recursive(&child, depth + 1, child_path, out);

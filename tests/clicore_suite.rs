@@ -1,22 +1,28 @@
 use std::{
+    collections::HashMap,
     process::Command as ProcessCommand,
     sync::{Arc, Mutex},
 };
 
 use cli_core::{
-    CliCore, CliCoreError, Command, CommandMetaData, CommandStrategy, StrategyError,
-    StrategyErrorKind, SubcommandRouter,
+    CliCore, CliCoreError, Command, CommandStrategy, StrategyError, StrategyErrorKind,
+    SubcommandRouter, command,
 };
 
 struct RecorderStrategy {
-    calls: Arc<Mutex<Vec<Vec<String>>>>,
+    calls: Arc<Mutex<Vec<(Vec<String>, HashMap<String, String>, Vec<String>)>>>,
     error: Option<StrategyError>,
 }
 
 impl CommandStrategy for RecorderStrategy {
-    fn execute(&self, args: Vec<String>) -> Result<(), StrategyError> {
+    fn execute(
+        &self,
+        options: Vec<String>,
+        arguments: HashMap<String, String>,
+        subcommands: Vec<String>,
+    ) -> Result<(), StrategyError> {
         let mut guard = self.calls.lock().expect("call log lock poisoned");
-        guard.push(args);
+        guard.push((options, arguments, subcommands));
 
         if let Some(err) = &self.error {
             return Err(err.clone());
@@ -29,13 +35,10 @@ impl CommandStrategy for RecorderStrategy {
 fn build_recorder_functionality(
     name: &str,
     description: &str,
-    calls: Arc<Mutex<Vec<Vec<String>>>>,
+    calls: Arc<Mutex<Vec<(Vec<String>, HashMap<String, String>, Vec<String>)>>>,
     error: Option<StrategyError>,
 ) -> Command {
-    Command {
-        metadata: CommandMetaData::new(name, description),
-        strategy: Arc::new(RecorderStrategy { calls, error }),
-    }
+    Command::new(name, description, RecorderStrategy { calls, error })
 }
 
 #[test]
@@ -94,8 +97,9 @@ fn run_from_args_routes_trailing_arguments_to_strategy() {
     let args = vec![
         "app".to_string(),
         "echo".to_string(),
-        "one".to_string(),
+        "--one".to_string(),
         "two".to_string(),
+        "--toggle".to_string(),
     ];
 
     let result = core.try_run_from_args(&args);
@@ -103,7 +107,9 @@ fn run_from_args_routes_trailing_arguments_to_strategy() {
 
     let guard = calls.lock().expect("call log lock poisoned");
     assert_eq!(guard.len(), 1);
-    assert_eq!(guard[0], vec!["one".to_string(), "two".to_string()]);
+    assert_eq!(guard[0].0, vec!["toggle".to_string()]);
+    assert_eq!(guard[0].1.get("one").map(String::as_str), Some("two"));
+    assert!(guard[0].2.is_empty());
 }
 
 #[test]
@@ -121,8 +127,9 @@ fn strategy_receives_subtask_tokens_for_chain_of_responsibility() {
     let args = vec![
         "cli-core".to_string(),
         "test".to_string(),
-        "all".to_string(),
-        "--fast".to_string(),
+        "--all".to_string(),
+        "fast".to_string(),
+        "--toggle".to_string(),
     ];
 
     let result = core.try_run_from_args(&args);
@@ -130,7 +137,9 @@ fn strategy_receives_subtask_tokens_for_chain_of_responsibility() {
 
     let guard = calls.lock().expect("call log lock poisoned");
     assert_eq!(guard.len(), 1);
-    assert_eq!(guard[0], vec!["all".to_string(), "--fast".to_string()]);
+    assert_eq!(guard[0].0, vec!["toggle".to_string()]);
+    assert_eq!(guard[0].1.get("all").map(String::as_str), Some("fast"));
+    assert!(guard[0].2.is_empty());
 }
 
 #[test]
@@ -142,9 +151,9 @@ fn functionality_from_fn_supports_function_based_strategy_registration() {
     core.register(Command::from_fn(
         "fncmd",
         "defined from a function",
-        move |args: Vec<String>| {
+        move |options, arguments, subcommands| {
             let mut guard = calls_for_strategy.lock().expect("call log lock poisoned");
-            guard.push(args);
+            guard.push((options, arguments, subcommands));
             Ok(())
         },
     ));
@@ -152,14 +161,16 @@ fn functionality_from_fn_supports_function_based_strategy_registration() {
     let args = vec![
         "cli-core".to_string(),
         "fncmd".to_string(),
-        "alpha".to_string(),
+        "--alpha".to_string(),
     ];
     let result = core.try_run_from_args(&args);
     assert!(result.is_ok());
 
     let guard = calls.lock().expect("call log lock poisoned");
     assert_eq!(guard.len(), 1);
-    assert_eq!(guard[0], vec!["alpha".to_string()]);
+    assert_eq!(guard[0].0, vec!["alpha".to_string()]);
+    assert!(guard[0].1.is_empty());
+    assert!(guard[0].2.is_empty());
 }
 
 #[test]
@@ -302,26 +313,33 @@ fn subcommand_router_dispatches_recursively_to_deep_children() {
     let deep_calls = Arc::new(Mutex::new(Vec::new()));
     let deep_calls_for_leaf = Arc::clone(&deep_calls);
 
-    let deep_leaf = Command::from_fn("leaf", "deep leaf", move |args| {
-        deep_calls_for_leaf
-            .lock()
-            .expect("call log lock poisoned")
-            .push(args);
-        Ok(())
-    });
+    let deep_leaf = Command::from_fn(
+        "leaf",
+        "deep leaf",
+        move |options, arguments, subcommands| {
+            deep_calls_for_leaf
+                .lock()
+                .expect("call log lock poisoned")
+                .push((options, arguments, subcommands));
+            Ok(())
+        },
+    );
 
-    let level_two = SubcommandRouter::new().register(Command {
-        metadata: CommandMetaData::new("level2", "second level"),
-        strategy: Arc::new(SubcommandRouter::new().register(deep_leaf)),
-    });
+    let level_two = Command::new(
+        "level2",
+        "second level",
+        SubcommandRouter::new().register(deep_leaf),
+    );
 
-    let root = Command {
-        metadata: CommandMetaData::new("tool", "tool root"),
-        strategy: Arc::new(SubcommandRouter::new().register(Command {
-            metadata: CommandMetaData::new("level1", "first level"),
-            strategy: Arc::new(level_two),
-        })),
-    };
+    let root = Command::new(
+        "tool",
+        "tool root",
+        SubcommandRouter::new().register(Command::new(
+            "level1",
+            "first level",
+            SubcommandRouter::new().register(level_two),
+        )),
+    );
 
     core.register(root);
 
@@ -339,24 +357,28 @@ fn subcommand_router_dispatches_recursively_to_deep_children() {
 
     let guard = deep_calls.lock().expect("call log lock poisoned");
     assert_eq!(guard.len(), 1);
-    assert_eq!(guard[0], vec!["--flag".to_string(), "value".to_string()]);
+    assert!(guard[0].0.is_empty());
+    assert_eq!(guard[0].1.get("flag").map(String::as_str), Some("value"));
+    assert!(guard[0].2.is_empty());
 }
 
 #[test]
 fn help_renderer_includes_recursive_subcommands_from_router_catalog() {
     let core = CliCore::new();
 
-    let root = Command {
-        metadata: CommandMetaData::new("tool", "tool root"),
-        strategy: Arc::new(SubcommandRouter::new().register(Command {
-            metadata: CommandMetaData::new("child", "child command"),
-            strategy: Arc::new(SubcommandRouter::new().register(Command::from_fn(
+    let root = Command::new(
+        "tool",
+        "tool root",
+        SubcommandRouter::new().register(Command::new(
+            "child",
+            "child command",
+            SubcommandRouter::new().register(Command::from_fn(
                 "leaf",
                 "leaf command",
-                |_| Ok(()),
-            ))),
-        })),
-    };
+                |_, _, _| Ok(()),
+            )),
+        )),
+    );
 
     core.register(root);
 
@@ -368,6 +390,38 @@ fn help_renderer_includes_recursive_subcommands_from_router_catalog() {
             assert!(help.contains("tool: tool root"));
             assert!(help.contains("tool child: child command"));
             assert!(help.contains("tool child leaf: leaf command"));
+        }
+        _ => panic!("expected missing command error"),
+    }
+}
+
+#[test]
+fn help_renderer_includes_nested_catalogs_hidden_by_fallback_wrappers() {
+    let core = CliCore::new();
+
+    let root = command("tool", "tool root")
+        .handler(SubcommandRouter::new().register(Command::new(
+            "inner",
+            "inner branch",
+            SubcommandRouter::new().register(Command::from_fn(
+                "leaf",
+                "leaf command",
+                |_, _, _| Ok(()),
+            )),
+        )))
+        .subcommand(command("outer", "outer command").handler_fn(|_, _, _| Ok(())))
+        .build();
+
+    core.register(root);
+
+    let args = vec!["app".to_string()];
+    let result = core.try_run_from_args(&args);
+
+    match result {
+        Err(CliCoreError::MissingCommand { help }) => {
+            assert!(help.contains("tool outer: outer command"));
+            assert!(help.contains("tool inner: inner branch"));
+            assert!(help.contains("tool inner leaf: leaf command"));
         }
         _ => panic!("expected missing command error"),
     }

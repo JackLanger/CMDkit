@@ -48,10 +48,11 @@ P3
     - Scope: src/cli.rs src/core.rs tests/
     - Acceptance met: nested path commands (for example: cli-core test all) resolve and execute correctly from tree registration without duplicating strategies.
 
-[ ] Allow for options and flags being passed to further alter the functionality of the CLI.
-    - Problem: trailing args are forwarded raw; there is no built-in option/flag interpretation contract.
-    - Scope: src/core.rs public API design + tests/
-    - Acceptance: define a stable strategy-facing argument contract (raw passthrough vs parsed model), implement it, and add dispatch + nested command coverage.
+[x] Allow for options and flags being passed to further alter the functionality of the CLI.
+    - Status: done. Strategy execution now receives parsed `options`, `arguments`, and `subcommands`, and command execution parses flag/value pairs before dispatching nested commands.
+    - Problem: trailing args were forwarded raw; there was no built-in option/flag interpretation contract.
+    - Scope: src/cli.rs public API + src/core.rs dispatch + functionality_macro/ + tests/
+    - Acceptance: a stable strategy-facing parsed contract exists and nested dispatch coverage validates flag/value parsing plus subcommand boundaries.
 
 Architecture re-evaluation (2026-05-27)
 
@@ -77,8 +78,8 @@ P2
     - Scope: README.md + src/core.rs docs + tests/clicore_suite.rs.
     - Acceptance: explicit documented rule for `argv[2..]` forwarding and edge-case tests for strategy-owned subtask interpretation.
 
-[ ] Add optional recursive subcommand catalogs for help rendering.
-    - Status: in progress. Added `SubcommandCatalog` + `SubcommandRouter` and initial recursive dispatch/help tests.
+[x] Add optional recursive subcommand catalogs for help rendering.
+    - Status: done. `FallbackSubcommandStrategy` now exposes a merged catalog so nested help traversal can see wrapped subcommand trees.
     - Problem: renderer needs deep subcommand visibility without forcing every strategy to implement help methods.
     - Scope: src/cli.rs strategy capability + src/core.rs renderer traversal + tests/clicore_suite.rs.
     - Acceptance: recursive subcommand chains are discoverable for help output while `CommandStrategy::execute` remains the only required strategy method.

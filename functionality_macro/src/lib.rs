@@ -39,31 +39,22 @@ pub fn cli(attr: TokenStream, item: TokenStream) -> TokenStream {
         _ => {
             return syn::Error::new_spanned(
                 &input_fn.sig,
-                "cli strategy functions must match CommandStrategy::execute with an &self receiver and Vec<String> arguments",
+                "cli strategy functions must match CommandStrategy::execute with an &self receiver and options, arguments, and subcommands arguments",
             )
             .into_compile_error()
             .into();
         }
     }
 
-    let pat = match inputs.next() {
+    let options_pat = match inputs.next() {
         Some(FnArg::Typed(PatType { pat, ty, .. })) => {
-            if inputs.next().is_some() {
-                return syn::Error::new_spanned(
-                    &input_fn.sig,
-                    "cli strategy functions must accept exactly one Vec<String> argument",
-                )
-                .into_compile_error()
-                .into();
-            }
-
             match ty.as_ref() {
                 Type::Path(path)
-                    if path.path.segments.len() == 1 && path.path.segments[0].ident == "Vec" => {}
+                    if path.path.segments.last().is_some_and(|segment| segment.ident == "Vec") => {}
                 _ => {
                     return syn::Error::new_spanned(
                         ty,
-                        "cli strategy functions must accept Vec<String> arguments",
+                        "cli strategy functions must accept a Vec<String> options argument",
                     )
                     .into_compile_error()
                     .into();
@@ -75,7 +66,70 @@ pub fn cli(attr: TokenStream, item: TokenStream) -> TokenStream {
         _ => {
             return syn::Error::new_spanned(
                 &input_fn.sig,
-                "cli strategy functions must accept a Vec<String> argument",
+                "cli strategy functions must accept an options Vec<String> argument",
+            )
+            .into_compile_error()
+            .into();
+        }
+    };
+
+    let arguments_pat = match inputs.next() {
+        Some(FnArg::Typed(PatType { pat, ty, .. })) => {
+            match ty.as_ref() {
+                Type::Path(path)
+                    if path.path.segments.last().is_some_and(|segment| segment.ident == "HashMap") => {}
+                _ => {
+                    return syn::Error::new_spanned(
+                        ty,
+                        "cli strategy functions must accept a HashMap<String, String> arguments argument",
+                    )
+                    .into_compile_error()
+                    .into();
+                }
+            }
+
+            pat
+        }
+        _ => {
+            return syn::Error::new_spanned(
+                &input_fn.sig,
+                "cli strategy functions must accept an arguments HashMap<String, String> argument",
+            )
+            .into_compile_error()
+            .into();
+        }
+    };
+
+    let subcommands_pat = match inputs.next() {
+        Some(FnArg::Typed(PatType { pat, ty, .. })) => {
+            if inputs.next().is_some() {
+                return syn::Error::new_spanned(
+                    &input_fn.sig,
+                    "cli strategy functions must accept exactly three parsed invocation arguments",
+                )
+                .into_compile_error()
+                .into();
+            }
+
+            match ty.as_ref() {
+                Type::Path(path)
+                    if path.path.segments.last().is_some_and(|segment| segment.ident == "Vec") => {}
+                _ => {
+                    return syn::Error::new_spanned(
+                        ty,
+                        "cli strategy functions must accept a Vec<String> subcommands argument",
+                    )
+                    .into_compile_error()
+                    .into();
+                }
+            }
+
+            pat
+        }
+        _ => {
+            return syn::Error::new_spanned(
+                &input_fn.sig,
+                "cli strategy functions must accept a subcommands Vec<String> argument",
             )
             .into_compile_error()
             .into();
@@ -123,7 +177,12 @@ pub fn cli(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
 
         impl ::cli_core::CommandStrategy for #strategy_ident {
-            fn execute(&self, #pat: Vec<String>) -> Result<(), ::cli_core::StrategyError> {
+            fn execute(
+                &self,
+                #options_pat: Vec<String>,
+                #arguments_pat: ::std::collections::HashMap<String, String>,
+                #subcommands_pat: Vec<String>,
+            ) -> Result<(), ::cli_core::StrategyError> {
                 #body
             }
         }

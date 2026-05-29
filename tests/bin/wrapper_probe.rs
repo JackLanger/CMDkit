@@ -1,24 +1,23 @@
-use std::sync::Arc;
+use std::collections::HashMap;
 
-use cli_core::{Command, CommandMetaData, CommandStrategy, StrategyError, core};
+use cli_core::{Command, CommandStrategy, StrategyError, core};
 
 struct ProbeStrategy;
 
 impl CommandStrategy for ProbeStrategy {
-    fn execute(&self, _args: Vec<String>) -> Result<(), StrategyError> {
+    fn execute(
+        &self,
+        _options: Vec<String>,
+        _arguments: HashMap<String, String>,
+        _subcommands: Vec<String>,
+    ) -> Result<(), StrategyError> {
         Ok(())
     }
 }
 
 fn main() {
     println!("--FIRST--");
-    core::run_with_commands(&[Command {
-        metadata: CommandMetaData::new("alpha", "alpha command"),
-        strategy: Arc::new(ProbeStrategy),
-    }]);
+    core::run_with_commands(&[Command::new("alpha", "alpha command", ProbeStrategy)]);
     println!("--SECOND--");
-    core::run_with_commands(&[Command {
-        metadata: CommandMetaData::new("beta", "beta command"),
-        strategy: Arc::new(ProbeStrategy),
-    }]);
+    core::run_with_commands(&[Command::new("beta", "beta command", ProbeStrategy)]);
 }
