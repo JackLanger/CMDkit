@@ -2,6 +2,15 @@
 name = "functionality_macro"
 version = "0.1.0"
 edition = "2024"
+description = "Procedural macros for cli-core command strategy generation."
+license = "GPL-3.0-or-later"
+repository = "https://github.com/JackLanger/Cli-Core"
+documentation = "https://docs.rs/functionality_macro"
+keywords = ["cli", "macro", "proc-macro"]
+categories = [
+    "development-tools::procedural-macro-helpers",
+    "command-line-interface",
+]
 
 [lib]
 proc-macro = true

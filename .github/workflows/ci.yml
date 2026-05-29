@@ -54,11 +54,54 @@ jobs:
       - name: Build release profile
         run: cargo build --release --locked
 
-      - name: Package crate
-        run: cargo package --locked
+      - name: Package macro crate
+        run: cd functionality_macro && cargo package --locked
 
       - name: Upload package artifact
         uses: actions/upload-artifact@v4
         with:
           name: crate-package-${{ github.ref_name }}
-          path: target/package/*.crate
+          path: functionality_macro/target/package/*.crate
+
+  publish-crates:
+    name: Publish Crates.io (tagged)
+    runs-on: ubuntu-latest
+    needs: [ci, release-build]
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Publish functionality_macro
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cd functionality_macro && cargo publish --locked
+
+      - name: Wait for macro crate index propagation
+        run: |
+          macro_version=$(grep '^version = ' functionality_macro/Cargo.toml | head -n 1 | cut -d '"' -f 2)
+
+          for attempt in $(seq 1 20); do
+            if cargo search functionality_macro --limit 5 | grep -q "functionality_macro = \"${macro_version}\""; then
+              echo "functionality_macro ${macro_version} is visible in the crates index"
+              exit 0
+            fi
+
+            echo "Attempt ${attempt}/20: functionality_macro ${macro_version} not visible yet; retrying..."
+            sleep 15
+          done
+
+          echo "Timed out waiting for functionality_macro ${macro_version} to propagate"
+          exit 1
+
+      - name: Publish cli-core
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --locked
