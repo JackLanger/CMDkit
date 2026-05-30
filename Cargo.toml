@@ -1,6 +1,6 @@
 [package]
 name = "cmdkit"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Core library for CLI tools, providing common functionality and utilities for building command-line applications."
 license = "GPL-3.0-or-later"
