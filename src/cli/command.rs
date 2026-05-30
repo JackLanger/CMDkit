@@ -43,25 +43,40 @@ pub struct Argument {
     /// Alternative spellings accepted during parsing.
     pub aliases: Vec<String>,
     /// Numeric payload that can be mapped to an enum or bit mask.
-    pub value: i32,
+    pub value: Option<String>,
+    /// Whether this argument is required or optional.
+    pub required: bool,
 }
 
 impl Argument {
     /// Creates a
     /// Argument declaration with the given numeric payload.
-    pub fn new(name: impl Into<String>, description: impl Into<String>, value: i32) -> Self {
+    pub fn new(name: impl Into<String>, description: impl Into<String>) -> Self {
         Self {
             name: name.into(),
             description: description.into(),
             aliases: Vec::new(),
-            value,
+            value: None,
+            required: false,
         }
     }
 
     /// Adds alias spellings for this
     /// Argument.
-    pub fn with_aliases(mut self, aliases: Vec<String>) -> Self {
-        self.aliases = aliases;
+    pub fn with_aliases(mut self, aliases: Vec<impl Into<String>>) -> Self {
+        self.aliases = aliases.into_iter().map(|s| s.into()).collect();
+        self
+    }
+
+    /// Sets the value for this argument.
+    pub fn set_value(mut self, value: impl Into<String>) -> Self {
+        self.value = Some(value.into());
+        self
+    }
+
+    /// Sets required to true, indicating this argument is required.
+    pub fn set_required(mut self) -> Self {
+        self.required = true;
         self
     }
 }
@@ -215,6 +230,15 @@ pub fn command(name: impl Into<String>, description: impl Into<String>) -> Comma
     CommandBuilder::new(name, description)
 }
 
+/// creates a value-taking option declaration.
+pub fn argument(name: impl Into<String>, description: impl Into<String>) -> Argument {
+    Argument::new(name, description)
+}
+
+/// creates a value-taking option declaration with the required flag set to true.
+pub fn switch(name: impl Into<String>, description: impl Into<String>) -> Switch {
+    Switch::new(name, description)
+}
 /// Fluent command builder that hides strategy implementation details.
 pub struct CommandBuilder {
     metadata: CommandMetaData,
@@ -294,8 +318,10 @@ impl CommandBuilder {
     }
 
     /// Adds alias entries for this command.
-    pub fn with_aliases(mut self, aliases: Vec<String>) -> Self {
-        self.metadata = self.metadata.with_aliases(aliases);
+    pub fn with_aliases(mut self, aliases: Vec<impl Into<String>>) -> Self {
+        self.metadata = self
+            .metadata
+            .with_aliases(aliases.into_iter().map(|s| s.into()).collect());
         self
     }
 

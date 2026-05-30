@@ -95,3 +95,11 @@ P3
     - Scope: src/core.rs.
     - Acceptance met: no ambiguous unused fallible-registration path remains in the codebase.
     
+[ ] Revisit Argument Parser in order to use arguments declared on the CommandMetaData. Arguments provide a setter and a required flag.
+    All required Arguments must not be empty after parsing.
+    - Problem: Current argument parser parses against available or declared arguments and switches but does not respect argument metadata such as required.
+    Further more the argument parsing algorithm is more complex than it should be as we should be able to find all available Arguments in the metadata and only need to populate the setters.
+    - Scope src/cli/command.rs
+    - Acceptance: 
+        1. Argument Parser is reworked to use metadata values rather creating new Arguments.
+        2. All tests pass
