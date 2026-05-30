@@ -358,12 +358,67 @@ impl From<CommandBuilder> for Command {
 }
 
 mod parser {
-    use super::{CommandMetaData, ParsedInvocation};
+    use super::{Argument, CommandMetaData, ParsedInvocation, Switch};
     use crate::StrategyError;
 
     pub(super) struct ArgumentParser;
 
     impl ArgumentParser {
+        fn find_declared_argument<'a>(
+            metadata: &'a CommandMetaData,
+            flag: &str,
+        ) -> Option<&'a Argument> {
+            metadata.arguments.iter().find(|argument| {
+                argument.name == flag || argument.aliases.iter().any(|alias| alias == flag)
+            })
+        }
+
+        fn find_declared_switch<'a>(
+            metadata: &'a CommandMetaData,
+            flag: &str,
+        ) -> Option<&'a Switch> {
+            metadata.options.iter().find(|option| {
+                option.name == flag || option.aliases.iter().any(|alias| alias == flag)
+            })
+        }
+
+        fn upsert_argument(arguments: &mut Vec<Argument>, argument: Argument) {
+            if let Some(existing) = arguments
+                .iter_mut()
+                .find(|existing| existing.name == argument.name)
+            {
+                *existing = argument;
+                return;
+            }
+
+            arguments.push(argument);
+        }
+
+        fn validate_required_arguments(
+            metadata: &CommandMetaData,
+            arguments: &[Argument],
+        ) -> Result<(), StrategyError> {
+            for required in metadata
+                .arguments
+                .iter()
+                .filter(|argument| argument.required)
+            {
+                let value = arguments
+                    .iter()
+                    .find(|argument| argument.name == required.name)
+                    .and_then(|argument| argument.value.as_deref());
+
+                if value.is_none_or(|value| value.trim().is_empty()) {
+                    return Err(StrategyError::invalid_arguments(format!(
+                        "missing value for required argument '--{}'",
+                        required.name
+                    )));
+                }
+            }
+
+            Ok(())
+        }
+
         pub fn parse<F>(
             args: Vec<String>,
             metadata: &CommandMetaData,
@@ -390,15 +445,30 @@ mod parser {
                     continue;
                 };
 
-                if let Some(argument_decl) = metadata.arguments.iter().find(|argument| {
-                    argument.name == flag || argument.aliases.iter().any(|alias| alias == flag)
-                }) {
-                    if let Some((_, value)) = flag.split_once('=') {
-                        arguments.push(argument_decl.clone().set_value(value.to_string()));
+                if let Some((flag_name, inline_value)) = flag.split_once('=') {
+                    if let Some(argument_decl) = Self::find_declared_argument(metadata, flag_name) {
+                        Self::upsert_argument(
+                            &mut arguments,
+                            argument_decl.clone().set_value(inline_value.to_string()),
+                        );
                         index += 1;
                         continue;
                     }
 
+                    if let Some(option_decl) = Self::find_declared_switch(metadata, flag_name) {
+                        return Err(StrategyError::invalid_arguments(format!(
+                            "switch '--{}' does not take a value",
+                            option_decl.name
+                        )));
+                    }
+
+                    return Err(StrategyError::invalid_arguments(format!(
+                        "unknown flag '--{}'",
+                        flag_name
+                    )));
+                }
+
+                if let Some(argument_decl) = Self::find_declared_argument(metadata, flag) {
                     let Some(next) = args.get(index + 1) else {
                         return Err(StrategyError::invalid_arguments(format!(
                             "missing value for argument '--{}'",
@@ -413,14 +483,15 @@ mod parser {
                         )));
                     }
 
-                    arguments.push(argument_decl.clone().set_value(next.clone()));
+                    Self::upsert_argument(
+                        &mut arguments,
+                        argument_decl.clone().set_value(next.clone()),
+                    );
                     index += 2;
                     continue;
                 }
 
-                if let Some(option_decl) = metadata.options.iter().find(|option| {
-                    option.name == flag || option.aliases.iter().any(|alias| alias == flag)
-                }) {
+                if let Some(option_decl) = Self::find_declared_switch(metadata, flag) {
                     if flag.contains('=') {
                         return Err(StrategyError::invalid_arguments(format!(
                             "switch '--{}' does not take a value",
@@ -433,27 +504,15 @@ mod parser {
                     continue;
                 }
 
-                if let Some((key, value)) = flag.split_once('=') {
-                    arguments.push(super::Argument::new(key, "").set_value(value.to_string()));
-                    index += 1;
-                    continue;
-                }
-
-                if let Some(next) = args.get(index + 1) {
-                    if next.starts_with("--") || is_subcommand(next) {
-                        options.push(super::Switch::new(flag, ""));
-                        index += 1;
-                    } else {
-                        arguments.push(super::Argument::new(flag, "").set_value(next.clone()));
-                        index += 2;
-                    }
-                } else {
-                    options.push(super::Switch::new(flag, ""));
-                    index += 1;
-                }
+                return Err(StrategyError::invalid_arguments(format!(
+                    "unknown flag '--{}'",
+                    flag
+                )));
             }
 
             params.extend_from_slice(&args[index..]);
+
+            Self::validate_required_arguments(metadata, &arguments)?;
 
             Ok(ParsedInvocation {
                 options,

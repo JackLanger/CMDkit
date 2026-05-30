@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use cmdkit::{Argument, CliCore, Command, Switch, command};
+use cmdkit::{Argument, CliCore, Switch, argument, command, switch};
 
 fn format_switches(switches: &[Switch]) -> String {
     switches
@@ -30,21 +30,23 @@ fn strategy_chain_handles_subtask_tokens() {
     let captured_for_strategy = Arc::clone(&captured);
 
     let core = CliCore::new();
-    core.register(Command::from_fn(
-        "parent",
-        "Parent command",
-        move |options, arguments, params| {
-            let mut guard = captured_for_strategy
-                .lock()
-                .expect("capture lock should not be poisoned");
-            guard.push(vec![
-                format!("options={}", format_switches(&options)),
-                format!("arguments={}", format_arguments(&arguments)),
-                format!("params={params:?}"),
-            ]);
-            Ok(())
-        },
-    ));
+    core.register(
+        command("parent", "Parent command")
+            .handler_fn(move |options, arguments, params| {
+                let mut guard = captured_for_strategy
+                    .lock()
+                    .expect("capture lock should not be poisoned");
+                guard.push(vec![
+                    format!("options={}", format_switches(&options)),
+                    format!("arguments={}", format_arguments(&arguments)),
+                    format!("params={params:?}"),
+                ]);
+                Ok(())
+            })
+            .with_options(vec![switch("opt", "option")])
+            .with_arguments(vec![argument("flag", "flag")])
+            .build(),
+    );
 
     let args = vec![
         "app".to_string(),
@@ -83,6 +85,7 @@ fn command_builder_registers_leaf_command_without_exposing_strategy_types() {
                     ]);
                 Ok(())
             })
+            .with_arguments(vec![argument("message", "message")])
             .build(),
     );
 
@@ -110,19 +113,23 @@ fn command_builder_registers_recursive_subcommands_without_router_exposure() {
     let core = CliCore::new();
     core.register(
         command("tool", "tool root")
-            .subcommand(command("run", "run tasks").subcommand(
-                command("one", "run one task").handler_fn(move |options, arguments, params| {
-                    captured_for_handler
-                        .lock()
-                        .expect("capture lock should not be poisoned")
-                        .push(vec![
-                            format!("options={}", format_switches(&options)),
-                            format!("arguments={}", format_arguments(&arguments)),
-                            format!("params={params:?}"),
-                        ]);
-                    Ok(())
-                }),
-            ))
+            .subcommand(
+                command("run", "run tasks").subcommand(
+                    command("one", "run one task")
+                        .handler_fn(move |options, arguments, params| {
+                            captured_for_handler
+                                .lock()
+                                .expect("capture lock should not be poisoned")
+                                .push(vec![
+                                    format!("options={}", format_switches(&options)),
+                                    format!("arguments={}", format_arguments(&arguments)),
+                                    format!("params={params:?}"),
+                                ]);
+                            Ok(())
+                        })
+                        .with_arguments(vec![argument("value", "value")]),
+                ),
+            )
             .build(),
     );
 

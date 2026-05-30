@@ -5,7 +5,7 @@ use std::{
 
 use cmdkit::{
     Argument, CliCore, CliCoreError, Command, CommandStrategy, StrategyError, StrategyErrorKind,
-    SubcommandRouter, Switch, command,
+    SubcommandRouter, Switch, argument, command, switch,
 };
 
 struct RecorderStrategy {
@@ -97,12 +97,16 @@ fn run_from_args_routes_trailing_arguments_to_strategy() {
     let core = CliCore::new();
     let calls = Arc::new(Mutex::new(Vec::new()));
 
-    core.register(build_recorder_functionality(
-        "echo",
-        "echo arguments",
-        Arc::clone(&calls),
-        None,
-    ));
+    core.register(
+        command("echo", "echo arguments")
+            .handler(RecorderStrategy {
+                calls: Arc::clone(&calls),
+                error: None,
+            })
+            .with_options(vec![switch("toggle", "toggle option")])
+            .with_arguments(vec![argument("one", "one value")])
+            .build(),
+    );
 
     let args = vec![
         "app".to_string(),
@@ -127,12 +131,16 @@ fn strategy_receives_subtask_tokens_for_chain_of_responsibility() {
     let core = CliCore::new();
     let calls = Arc::new(Mutex::new(Vec::new()));
 
-    core.register(build_recorder_functionality(
-        "test",
-        "test root",
-        Arc::clone(&calls),
-        None,
-    ));
+    core.register(
+        command("test", "test root")
+            .handler(RecorderStrategy {
+                calls: Arc::clone(&calls),
+                error: None,
+            })
+            .with_options(vec![switch("toggle", "toggle option")])
+            .with_arguments(vec![argument("all", "all value")])
+            .build(),
+    );
 
     let args = vec![
         "CMDkit".to_string(),
@@ -158,15 +166,16 @@ fn functionality_from_fn_supports_function_based_strategy_registration() {
     let calls = Arc::new(Mutex::new(Vec::new()));
     let calls_for_strategy = Arc::clone(&calls);
 
-    core.register(Command::from_fn(
-        "fncmd",
-        "defined from a function",
-        move |options, arguments, params| {
-            let mut guard = calls_for_strategy.lock().expect("call log lock poisoned");
-            guard.push((options, arguments, params));
-            Ok(())
-        },
-    ));
+    core.register(
+        command("fncmd", "defined from a function")
+            .handler_fn(move |options, arguments, params| {
+                let mut guard = calls_for_strategy.lock().expect("call log lock poisoned");
+                guard.push((options, arguments, params));
+                Ok(())
+            })
+            .with_options(vec![switch("alpha", "alpha switch")])
+            .build(),
+    );
 
     let args = vec![
         "CMDkit".to_string(),
@@ -273,6 +282,143 @@ fn strategy_errors_bubble_with_kind_and_message() {
 }
 
 #[test]
+fn parser_rejects_unknown_flags() {
+    let core = CliCore::new();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+
+    core.register(
+        command("strict", "strict command")
+            .handler(RecorderStrategy {
+                calls: Arc::clone(&calls),
+                error: None,
+            })
+            .with_options(vec![switch("known", "known switch")])
+            .with_arguments(vec![argument("path", "path argument")])
+            .build(),
+    );
+
+    let args = vec![
+        "app".to_string(),
+        "strict".to_string(),
+        "--unknown".to_string(),
+    ];
+
+    let result = core.try_run_from_args(&args);
+    match result {
+        Err(CliCoreError::StrategyExecution { command, source }) => {
+            assert_eq!(command, "strict");
+            assert_eq!(source.kind, StrategyErrorKind::InvalidArguments);
+            assert!(source.message.contains("unknown flag '--unknown'"));
+        }
+        _ => panic!("expected strategy execution error for unknown flag"),
+    }
+}
+
+#[test]
+fn parser_enforces_required_argument_presence_and_non_empty_values() {
+    let core = CliCore::new();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+
+    core.register(
+        command("strict", "strict command")
+            .handler(RecorderStrategy {
+                calls: Arc::clone(&calls),
+                error: None,
+            })
+            .with_arguments(vec![argument("path", "path argument").set_required()])
+            .build(),
+    );
+
+    let missing_value = vec!["app".to_string(), "strict".to_string()];
+    let missing_result = core.try_run_from_args(&missing_value);
+    match missing_result {
+        Err(CliCoreError::StrategyExecution { source, .. }) => {
+            assert_eq!(source.kind, StrategyErrorKind::InvalidArguments);
+            assert!(
+                source
+                    .message
+                    .contains("missing value for required argument '--path'")
+            );
+        }
+        _ => panic!("expected missing required argument error"),
+    }
+
+    let inline_empty = vec![
+        "app".to_string(),
+        "strict".to_string(),
+        "--path=".to_string(),
+    ];
+    let inline_empty_result = core.try_run_from_args(&inline_empty);
+    match inline_empty_result {
+        Err(CliCoreError::StrategyExecution { source, .. }) => {
+            assert_eq!(source.kind, StrategyErrorKind::InvalidArguments);
+            assert!(
+                source
+                    .message
+                    .contains("missing value for required argument '--path'")
+            );
+        }
+        _ => panic!("expected required argument empty-value error"),
+    }
+
+    let next_empty = vec![
+        "app".to_string(),
+        "strict".to_string(),
+        "--path".to_string(),
+        "".to_string(),
+    ];
+    let next_empty_result = core.try_run_from_args(&next_empty);
+    match next_empty_result {
+        Err(CliCoreError::StrategyExecution { source, .. }) => {
+            assert_eq!(source.kind, StrategyErrorKind::InvalidArguments);
+            assert!(
+                source
+                    .message
+                    .contains("missing value for required argument '--path'")
+            );
+        }
+        _ => panic!("expected required argument empty-value error"),
+    }
+}
+
+#[test]
+fn parser_accepts_argument_aliases_and_uses_last_value_wins() {
+    let core = CliCore::new();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let calls_for_strategy = Arc::clone(&calls);
+
+    core.register(
+        command("alias", "alias command")
+            .handler_fn(move |options, arguments, params| {
+                let mut guard = calls_for_strategy.lock().expect("call log lock poisoned");
+                guard.push((options, arguments, params));
+                Ok(())
+            })
+            .with_arguments(vec![
+                argument("path", "path argument").with_aliases(vec!["p"]),
+            ])
+            .build(),
+    );
+
+    let args = vec![
+        "app".to_string(),
+        "alias".to_string(),
+        "--p".to_string(),
+        "first".to_string(),
+        "--path".to_string(),
+        "second".to_string(),
+    ];
+
+    assert!(core.try_run_from_args(&args).is_ok());
+
+    let guard = calls.lock().expect("call log lock poisoned");
+    assert_eq!(guard.len(), 1);
+    assert_eq!(guard[0].1.len(), 1);
+    assert_eq!(guard[0].1[0].name, "path");
+    assert_eq!(guard[0].1[0].value.as_deref(), Some("second"));
+}
+
+#[test]
 fn independent_instances_do_not_share_registry_entries() {
     let core_a = CliCore::new();
     let core_b = CliCore::new();
@@ -323,13 +469,16 @@ fn subcommand_router_dispatches_recursively_to_deep_children() {
     let deep_calls = Arc::new(Mutex::new(Vec::new()));
     let deep_calls_for_leaf = Arc::clone(&deep_calls);
 
-    let deep_leaf = Command::from_fn("leaf", "deep leaf", move |options, arguments, params| {
-        deep_calls_for_leaf
-            .lock()
-            .expect("call log lock poisoned")
-            .push((options, arguments, params));
-        Ok(())
-    });
+    let deep_leaf = command("leaf", "deep leaf")
+        .handler_fn(move |options, arguments, params| {
+            deep_calls_for_leaf
+                .lock()
+                .expect("call log lock poisoned")
+                .push((options, arguments, params));
+            Ok(())
+        })
+        .with_arguments(vec![argument("flag", "flag value")])
+        .build();
 
     let level_two = Command::new(
         "level2",

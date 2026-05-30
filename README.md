@@ -178,7 +178,20 @@ Supported forms include:
 - `--key=value`
 - aliases declared in metadata
 
-Unknown flags are still parsed and returned to handlers as typed `Switch` or `Argument` values.
+Unknown flags are rejected with `StrategyErrorKind::InvalidArguments`.
+
+## Strategy Token Semantics
+
+For `try_run_from_args`, CMDkit applies deterministic forwarding rules:
+
+- `argv[1]` selects the top-level command only.
+- The selected command receives and parses `argv[2..]`.
+- Parsing at each command level stops at the first token that matches a declared subcommand name or alias.
+- That boundary token and the remaining tail are forwarded to subcommand routing.
+- Any non-flag tokens seen before the boundary stay in `params` at the current command level.
+- After a subcommand boundary, parsing responsibility shifts to the selected child command.
+
+Practical implication: if you pass `tool run --mode fast`, the `--mode` token is parsed by `run` (the child), not by `tool` (the parent).
 
 ## Help Rendering
 
