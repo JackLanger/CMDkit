@@ -1,4 +1,4 @@
-CLI-Core Architecture TODO
+CMDkit Architecture TODO
 
 Priority legend:
 - P1 = High priority (fix soon)
@@ -46,7 +46,7 @@ P3
 [x] Allow for nested Function so that CLIStrategies can hold other Strategies.
     - Status: done via hierarchical Functionality children + longest-path dispatch + child retrieval API.
     - Scope: src/cli.rs src/core.rs tests/
-    - Acceptance met: nested path commands (for example: cli-core test all) resolve and execute correctly from tree registration without duplicating strategies.
+    - Acceptance met: nested path commands (for example: CMDkit test all) resolve and execute correctly from tree registration without duplicating strategies.
 
 [x] Allow for options and flags being passed to further alter the functionality of the CLI.
     - Status: done. Strategy execution now receives parsed `options`, `arguments`, and `subcommands`, and command execution parses flag/value pairs before dispatching nested commands.

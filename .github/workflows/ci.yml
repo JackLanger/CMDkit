@@ -54,7 +54,7 @@ jobs:
       - name: Build release profile
         run: cargo build --release --locked
 
-      - name: Package cli-core
+      - name: Package CMDkit
         run: cargo package --locked
 
       - name: Package cmdkit-macros
@@ -88,7 +88,7 @@ jobs:
       - name: Cache cargo artifacts
         uses: Swatinem/rust-cache@v2
 
-      - name: Publish cli-core
+      - name: Publish CMDkit
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: cargo publish --locked

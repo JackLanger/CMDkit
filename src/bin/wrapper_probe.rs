@@ -1,15 +1,13 @@
-use std::collections::HashMap;
-
-use cmdkit::{Command, CommandStrategy, StrategyError, core};
+use cmdkit::{Argument, Command, CommandStrategy, StrategyError, Switch, core};
 
 struct ProbeStrategy;
 
 impl CommandStrategy for ProbeStrategy {
     fn execute(
         &self,
-        _options: Vec<String>,
-        _arguments: HashMap<String, String>,
-        _subcommands: Vec<String>,
+        _options: Vec<Switch>,
+        _arguments: Vec<Argument>,
+        _params: Vec<String>,
     ) -> Result<(), StrategyError> {
         Ok(())
     }

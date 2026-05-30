@@ -1,28 +1,27 @@
 use std::{
-    collections::HashMap,
     process::Command as ProcessCommand,
     sync::{Arc, Mutex},
 };
 
 use cmdkit::{
-    CliCore, CliCoreError, Command, CommandStrategy, StrategyError, StrategyErrorKind,
-    SubcommandRouter, command,
+    Argument, CliCore, CliCoreError, Command, CommandStrategy, StrategyError, StrategyErrorKind,
+    SubcommandRouter, Switch, command,
 };
 
 struct RecorderStrategy {
-    calls: Arc<Mutex<Vec<(Vec<String>, HashMap<String, String>, Vec<String>)>>>,
+    calls: Arc<Mutex<Vec<(Vec<Switch>, Vec<Argument>, Vec<String>)>>>,
     error: Option<StrategyError>,
 }
 
 impl CommandStrategy for RecorderStrategy {
     fn execute(
         &self,
-        options: Vec<String>,
-        arguments: HashMap<String, String>,
-        subcommands: Vec<String>,
+        options: Vec<Switch>,
+        arguments: Vec<Argument>,
+        params: Vec<String>,
     ) -> Result<(), StrategyError> {
         let mut guard = self.calls.lock().expect("call log lock poisoned");
-        guard.push((options, arguments, subcommands));
+        guard.push((options, arguments, params));
 
         if let Some(err) = &self.error {
             return Err(err.clone());
@@ -35,10 +34,21 @@ impl CommandStrategy for RecorderStrategy {
 fn build_recorder_functionality(
     name: &str,
     description: &str,
-    calls: Arc<Mutex<Vec<(Vec<String>, HashMap<String, String>, Vec<String>)>>>,
+    calls: Arc<Mutex<Vec<(Vec<Switch>, Vec<Argument>, Vec<String>)>>>,
     error: Option<StrategyError>,
 ) -> Command {
     Command::new(name, description, RecorderStrategy { calls, error })
+}
+
+fn has_switch(switches: &[Switch], name: &str) -> bool {
+    switches.iter().any(|switch| switch.name == name)
+}
+
+fn argument_value<'a>(arguments: &'a [Argument], name: &str) -> Option<&'a str> {
+    arguments
+        .iter()
+        .find(|argument| argument.name == name)
+        .and_then(|argument| argument.value.as_deref())
 }
 
 #[test]
@@ -107,8 +117,8 @@ fn run_from_args_routes_trailing_arguments_to_strategy() {
 
     let guard = calls.lock().expect("call log lock poisoned");
     assert_eq!(guard.len(), 1);
-    assert_eq!(guard[0].0, vec!["toggle".to_string()]);
-    assert_eq!(guard[0].1.get("one").map(String::as_str), Some("two"));
+    assert!(has_switch(&guard[0].0, "toggle"));
+    assert_eq!(argument_value(&guard[0].1, "one"), Some("two"));
     assert!(guard[0].2.is_empty());
 }
 
@@ -125,7 +135,7 @@ fn strategy_receives_subtask_tokens_for_chain_of_responsibility() {
     ));
 
     let args = vec![
-        "cli-core".to_string(),
+        "CMDkit".to_string(),
         "test".to_string(),
         "--all".to_string(),
         "fast".to_string(),
@@ -137,8 +147,8 @@ fn strategy_receives_subtask_tokens_for_chain_of_responsibility() {
 
     let guard = calls.lock().expect("call log lock poisoned");
     assert_eq!(guard.len(), 1);
-    assert_eq!(guard[0].0, vec!["toggle".to_string()]);
-    assert_eq!(guard[0].1.get("all").map(String::as_str), Some("fast"));
+    assert!(has_switch(&guard[0].0, "toggle"));
+    assert_eq!(argument_value(&guard[0].1, "all"), Some("fast"));
     assert!(guard[0].2.is_empty());
 }
 
@@ -151,15 +161,15 @@ fn functionality_from_fn_supports_function_based_strategy_registration() {
     core.register(Command::from_fn(
         "fncmd",
         "defined from a function",
-        move |options, arguments, subcommands| {
+        move |options, arguments, params| {
             let mut guard = calls_for_strategy.lock().expect("call log lock poisoned");
-            guard.push((options, arguments, subcommands));
+            guard.push((options, arguments, params));
             Ok(())
         },
     ));
 
     let args = vec![
-        "cli-core".to_string(),
+        "CMDkit".to_string(),
         "fncmd".to_string(),
         "--alpha".to_string(),
     ];
@@ -168,7 +178,7 @@ fn functionality_from_fn_supports_function_based_strategy_registration() {
 
     let guard = calls.lock().expect("call log lock poisoned");
     assert_eq!(guard.len(), 1);
-    assert_eq!(guard[0].0, vec!["alpha".to_string()]);
+    assert!(has_switch(&guard[0].0, "alpha"));
     assert!(guard[0].1.is_empty());
     assert!(guard[0].2.is_empty());
 }
@@ -313,17 +323,13 @@ fn subcommand_router_dispatches_recursively_to_deep_children() {
     let deep_calls = Arc::new(Mutex::new(Vec::new()));
     let deep_calls_for_leaf = Arc::clone(&deep_calls);
 
-    let deep_leaf = Command::from_fn(
-        "leaf",
-        "deep leaf",
-        move |options, arguments, subcommands| {
-            deep_calls_for_leaf
-                .lock()
-                .expect("call log lock poisoned")
-                .push((options, arguments, subcommands));
-            Ok(())
-        },
-    );
+    let deep_leaf = Command::from_fn("leaf", "deep leaf", move |options, arguments, params| {
+        deep_calls_for_leaf
+            .lock()
+            .expect("call log lock poisoned")
+            .push((options, arguments, params));
+        Ok(())
+    });
 
     let level_two = Command::new(
         "level2",
@@ -358,7 +364,7 @@ fn subcommand_router_dispatches_recursively_to_deep_children() {
     let guard = deep_calls.lock().expect("call log lock poisoned");
     assert_eq!(guard.len(), 1);
     assert!(guard[0].0.is_empty());
-    assert_eq!(guard[0].1.get("flag").map(String::as_str), Some("value"));
+    assert_eq!(argument_value(&guard[0].1, "flag"), Some("value"));
     assert!(guard[0].2.is_empty());
 }
 

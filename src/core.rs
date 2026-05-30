@@ -100,7 +100,7 @@ impl Default for CoreConfig {
     }
 }
 
-/// Error returned by CLI-Core during command routing and strategy execution.
+/// Error returned by CMDkit during command routing and strategy execution.
 #[derive(Debug)]
 pub enum CliCoreError {
     /// No command name was provided in argv.
@@ -279,7 +279,7 @@ impl CliCore {
     fn handle_poison<T>(&self, poisoned: PoisonError<T>, operation: &str) -> T {
         match self.lock_poison_policy() {
             LockPoisonPolicy::FailFast => {
-                panic!("cli-core registry lock poisoned during {operation} operation")
+                panic!("CMDkit registry lock poisoned during {operation} operation")
             }
             LockPoisonPolicy::Recover => poisoned.into_inner(),
         }

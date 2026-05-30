@@ -1,0 +1,10 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},{
+			"name": "cmdkit-macros",
+			"path": "../cmdkit-macros"
+		}
+	]
+}

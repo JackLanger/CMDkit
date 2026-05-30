@@ -1,173 +1,212 @@
-# CLI-Core
+# CMDkit
 
-CLI-Core is a Rust library for implementation-first command dispatch with an instance-owned runtime.
+CMDkit is a small, implementation-first Rust framework for building command-line tools.
 
-The architecture is intentionally small and portable:
+It is designed around three ideas:
 
-- commands are registered as a tree of implementations
-- `Command` owns command metadata and an internal strategy handle
-- `CommandStrategy` owns behavior for the selected command only
-- routing nodes forward subcommands; leaf strategies consume the parsed invocation
-- help output is generated from command metadata through a pluggable `HelpRenderer`
+- explicit command trees
+- instance-owned runtime state
+- strategy-based command execution
 
-## Core concepts
+That makes it a good fit for CLIs that need nested routing, testable dispatch, and predictable parsing without process-global state.
 
-### Command model
+## Installation
 
-`Command` is the unit of registration. It contains:
-
-- `metadata: CommandMetaData`
-- an internal strategy handle
-
-`CommandMetaData` includes required and optional help-facing fields:
-
-- required: `name`, `description`
-- optional: `usage`, `long_description`, `examples`, `options`, `aliases`
-
-Use `CommandMetaData::new(...)` and builder-style metadata methods such as `with_usage(...)`, `with_examples(...)`, and `with_options(...)`.
-
-### Strategy model
-
-`CommandStrategy` defines one method:
-
-```rust
-fn execute(
-    &self,
-    options: Vec<String>,
-    arguments: HashMap<String, String>,
-    subcommands: Vec<String>,
-) -> Result<(), StrategyError>
+```bash
+cargo add cmdkit
 ```
 
-`CliCore` resolves `argv[1]` as the command name and parses the remaining tokens into:
+## Highlights
 
-- `options`: bare flags such as `--verbose`
-- `arguments`: flag/value pairs such as `--path ./tmp`
-- `subcommands`: the remaining command chain for nested routing
+- Register commands with `Command::new(...)` or fluent `command(...).build()`.
+- Attach handlers as structs (`CommandStrategy`) or closures (`handler_fn` / `Command::from_fn`).
+- Compose nested command hierarchies with subcommands.
+- Parse command input into three channels:
+    - `options: Vec<Switch>` for switch/flag inputs
+    - `arguments: Vec<Argument>` for value-bearing inputs
+    - `params: Vec<String>` for remaining positional parameters
+- Customize help output via `HelpRenderer`.
+- Configure lock-poison behavior with `CoreConfig`.
 
-Only the final selected command strategy receives the parsed invocation.
-Intermediate routing commands can ignore flags and options.
+## Core API
 
-### Help rendering
+### Runtime
 
-Help is rendered from registered command metadata via `HelpRenderer`.
+- `CliCore::new()` creates a runtime with default config.
+- `CliCore::create(config)` uses custom `CoreConfig`.
+- `register`, `get`, and `get_all` manage command registration.
+- `try_run_from_args(&[String])` is ideal for tests and embedding.
+- `run_with_commands` and `try_run_with_commands` are convenience wrappers.
 
-Default behavior uses `PlainTextHelpRenderer`, configured in `CoreConfig::new()`.
-You can inject a custom renderer with `CoreConfig::with_help_renderer(...)`.
+Each `CliCore` instance owns its own registry. Runtime state is not shared across instances.
 
-## Quick start
+### Command Construction
 
-### 1. Define a strategy
+- `Command::new(name, description, strategy)`
+- `Command::from_fn(name, description, closure)`
+- `command(name, description)` fluent builder:
+  - `.handler(...)`
+  - `.handler_fn(...)`
+  - `.subcommand(...)`
+  - `.with_usage(...)`
+  - `.with_long_description(...)`
+  - `.with_examples(...)`
+  - `.with_options(...)`
+  - `.with_arguments(...)`
+  - `.with_aliases(...)`
+  - `.build()`
+
+### Metadata Declarations
+
+CMDkit metadata separates value-taking inputs from switch-like inputs:
+
+- `switch(...)` / `Switch`: declares switch/flag inputs
+- `argument(...)` / `Argument`: declares value-bearing inputs
+
+Both support aliases.
+
+## Quick Start
 
 ```rust
-use std::collections::HashMap;
+use cmdkit::{argument, command, switch, Argument, CliCore, CommandStrategy, StrategyError, Switch};
 
-use cmdkit::{CommandStrategy, StrategyError};
+struct CreateProject;
 
-struct NewProject;
-
-impl CommandStrategy for NewProject {
+impl CommandStrategy for CreateProject {
     fn execute(
         &self,
-        options: Vec<String>,
-        arguments: HashMap<String, String>,
-        subcommands: Vec<String>,
+        options: Vec<Switch>,
+        arguments: Vec<Argument>,
+        _params: Vec<String>,
     ) -> Result<(), StrategyError> {
-        let project_name = arguments
-            .get("name")
-            .cloned()
-            .ok_or_else(|| StrategyError::invalid_arguments("missing --name <project_name>"))?;
+        let name = arguments
+            .iter()
+            .find(|arg| arg.name == "name")
+            .and_then(|arg| arg.value.clone())
+            .ok_or_else(|| StrategyError::invalid_arguments("missing --name <value>"))?;
 
-        println!("creating project: {project_name}");
-        println!("options: {options:?}");
-        println!("subcommands: {subcommands:?}");
+        let language = arguments
+            .iter()
+            .find(|arg| arg.name == "language")
+            .and_then(|arg| arg.value.clone())
+            .ok_or_else(|| StrategyError::invalid_arguments("missing --language <value>"))?;
+
+        let dry_run = options.iter().any(|flag| flag.name == "dry-run");
+
+        println!("create project: {name}, language: {language}, dry-run: {dry_run}");
         Ok(())
     }
 }
+
+fn main() {
+    let core = CliCore::new();
+
+    core.register(
+        command("create", "Create a new project")
+            .handler(CreateProject)
+            .with_aliases(vec!["new", "init"])
+            .with_options(vec![
+                switch("dry-run", "Preview only").with_aliases(vec!["check".to_string()]),
+            ])
+            .with_arguments(vec![
+                argument("name", "Project name").with_aliases(vec!["n"]),
+                argument("language", "Target language").with_aliases(vec!["l"]),
+            ])
+            .build(),
+    );
+
+    let args = vec![
+        "projectmanager".to_string(),
+        "create".to_string(),
+        "--name".to_string(),
+        "demo".to_string(),
+        "--language".to_string(),
+        "rust".to_string(),
+        "--dry-run".to_string(),
+    ];
+
+    core.try_run_from_args(&args).expect("CLI execution failed");
+}
 ```
 
-### 2. Register commands
+## Nested Command Trees
+
+Nested trees can be built directly with the fluent builder:
 
 ```rust
-use cmdkit::{CliCore, Command};
+use cmdkit::{command, CliCore};
 
 let core = CliCore::new();
+
 core.register(
-    Command::new("new", "Create a new project", NewProject)
-        .with_usage("new --name <project_name>"),
+    command("project", "Project commands")
+        .subcommand(
+            command("create", "Create a project").handler_fn(|options, arguments, _| {
+                println!("options={options:?} arguments={arguments:?}");
+                Ok(())
+            }),
+        )
+        .subcommand(
+            command("delete", "Delete a project").handler_fn(|_, arguments, params| {
+                println!("arguments={arguments:?} params={params:?}");
+                Ok(())
+            }),
+        )
+        .build(),
 );
 ```
 
-For nested commands, build a tree and let the runtime route to the leaf:
+Routing commands forward execution to leaf commands. The selected leaf strategy receives parsed input.
+
+## Parser Behavior
+
+For an invocation like:
+
+```text
+app create --name demo --language rust --dry-run
+```
+
+the strategy receives:
+
+- an `Argument { name: "name", value: Some("demo") }`
+- an `Argument { name: "language", value: Some("rust") }`
+- an `options` entry with `Switch { name: "dry-run", ... }`
+
+Supported forms include:
+
+- `--key value`
+- `--key=value`
+- aliases declared in metadata
+
+Unknown flags are still parsed and returned to handlers as typed `Switch` or `Argument` values.
+
+## Help Rendering
+
+Default help is plain text via `PlainTextHelpRenderer` and includes recursively discovered subcommands.
+
+Trigger help with:
+
+```text
+<binary> help
+```
+
+Or rely on the generated help from `MissingCommand` / `UnknownCommand` errors.
+
+You can provide a custom renderer:
 
 ```rust
-use std::collections::HashMap;
+use cmdkit::{Command, HelpRenderer};
 
-use cmdkit::{command, Command, CommandStrategy, StrategyError};
+struct JsonHelp;
 
-struct RunTask;
-
-impl CommandStrategy for RunTask {
-    fn execute(
-        &self,
-        options: Vec<String>,
-        arguments: HashMap<String, String>,
-        subcommands: Vec<String>,
-    ) -> Result<(), StrategyError> {
-        println!("options: {options:?}");
-        println!("arguments: {arguments:?}");
-        println!("subcommands: {subcommands:?}");
-        Ok(())
+impl HelpRenderer for JsonHelp {
+    fn render(&self, caller: &str, commands: &[Command]) -> String {
+        format!("{{\"bin\":\"{}\",\"commands\":{}}}", caller, commands.len())
     }
 }
-
-let app = command("app", "Application root")
-    .subcommand(
-        command("run", "Run tasks")
-            .subcommand(Command::new("task", "Execute a task", RunTask)),
-    )
-    .build();
 ```
 
-### 3. Run dispatch
-
-```rust
-core.run_with_commands(&[]);
-```
-
-Or use crate-level helpers:
-
-```rust
-cmdkit::run_with_commands(&[]);
-```
-
-### 4. Run with explicit args (tests/embedding)
-
-```rust
-use cmdkit::CliCoreError;
-
-fn run_embedded(args: Vec<String>) -> Result<(), CliCoreError> {
-    let core = CliCore::new();
-    core.try_run_from_args(&args)
-}
-```
-
-### 5. Pass parsed flags and values
-
-```rust
-let args = vec![
-    "app".to_string(),
-    "new".to_string(),
-    "--name".to_string(),
-    "my_app".to_string(),
-];
-
-core.try_run_from_args(&args)?;
-```
-
-## Configuring the runtime
-
-`CoreConfig` is runtime-owned and immutable after `CliCore::create(config)`.
+## Runtime Configuration
 
 ```rust
 use cmdkit::{CliCore, CoreConfig, LockPoisonPolicy};
@@ -178,62 +217,37 @@ let config = CoreConfig::new()
 let core = CliCore::create(config);
 ```
 
-## Custom help rendering
+`LockPoisonPolicy` values:
 
-```rust
-use cmdkit::{Command, HelpRenderer};
+- `FailFast` (default): panic when registry lock is poisoned
+- `Recover`: recover poisoned lock state and continue
 
-struct JsonHelpRenderer;
+## Error Model
 
-impl HelpRenderer for JsonHelpRenderer {
-    fn render(&self, caller: &str, commands: &[Command]) -> String {
-        format!("{{\"bin\":\"{}\",\"command_count\":{}}}", caller, commands.len())
-    }
-}
-```
-
-Use it with `CoreConfig::with_help_renderer(...)`.
-
-## Proc macro (`#[cli]`)
-
-The `#[cli]` macro lives in the separate `cmdkit-macros` crate. Add it alongside `cli-core` and import it from that package:
-
-```rust
-use std::collections::HashMap;
-
-use cmdkit::StrategyError;
-use cmdkit_macros::cli;
-
-#[cli]
-fn list_files(
-    &self,
-    options: Vec<String>,
-    arguments: HashMap<String, String>,
-    subcommands: Vec<String>,
-) -> Result<(), StrategyError> {
-    println!("options: {options:?}");
-    println!("arguments: {arguments:?}");
-    println!("subcommands: {subcommands:?}");
-    Ok(())
-}
-```
-
-This generates `ListFiles` with `ListFiles::new()` and a `list_files_strategy()` factory.
-
-If you do not want the macro crate, you can still build commands directly with `Command::new(...)` or `Command::from_fn(...)`.
-
-## Error model
-
-- routing errors: `CliCoreError`
-- strategy errors: `StrategyError` with kinds
+- `CliCoreError` for dispatch/runtime-level failures:
+  - `MissingCommand`
+  - `UnknownCommand`
+  - `StrategyExecution`
+- `StrategyError` for command handler failures with `StrategyErrorKind`:
   - `InvalidArguments`
   - `Execution`
   - `Internal`
-- `CliCoreError::StrategyExecution` retains the original strategy error as source
 
-## Notes
+`CliCoreError::StrategyExecution` preserves the originating `StrategyError` as source.
 
-- command lookup is flat by command name at the runtime boundary
-- help is metadata-driven and can recursively traverse registered subcommand trees
-- routing commands only forward nested subcommands; leaf strategies consume parsed flags and values
-- the runtime is instance-owned, so the architecture stays portable and does not depend on process-global state
+## Testing and Embedding
+
+Use `try_run_from_args` to test dispatch deterministically:
+
+```rust
+use cmdkit::{CliCore, CliCoreError};
+
+fn run_embedded(args: Vec<String>) -> Result<(), CliCoreError> {
+    let core = CliCore::new();
+    core.try_run_from_args(&args)
+}
+```
+
+## License
+
+This project is licensed under GPL-3.0-or-later.

@@ -1,9 +1,6 @@
-use std::{
-    collections::{BTreeMap, HashMap},
-    sync::Arc,
-};
+use std::{collections::BTreeMap, sync::Arc};
 
-use super::{Command, StrategyError};
+use super::{Argument, Command, StrategyError, Switch};
 
 /// Optional help-time capability exposed by strategies that can route to child strategies.
 pub trait SubcommandCatalog {
@@ -17,9 +14,9 @@ pub trait CommandStrategy: Send + Sync {
     /// Strategy implementations should validate argument viability internally.
     fn execute(
         &self,
-        options: Vec<String>,
-        arguments: HashMap<String, String>,
-        subcommands: Vec<String>,
+        options: Vec<Switch>,
+        arguments: Vec<Argument>,
+        params: Vec<String>,
     ) -> Result<(), StrategyError>;
 
     /// Optional catalog exposure used by help renderers to discover nested command trees.
@@ -31,18 +28,14 @@ pub trait CommandStrategy: Send + Sync {
 /// Adapter that turns a function or closure into a [`CommandStrategy`].
 pub struct FunctionStrategy<F>
 where
-    F: Fn(Vec<String>, HashMap<String, String>, Vec<String>) -> Result<(), StrategyError>
-        + Send
-        + Sync,
+    F: Fn(Vec<Switch>, Vec<Argument>, Vec<String>) -> Result<(), StrategyError> + Send + Sync,
 {
     runner: F,
 }
 
 impl<F> FunctionStrategy<F>
 where
-    F: Fn(Vec<String>, HashMap<String, String>, Vec<String>) -> Result<(), StrategyError>
-        + Send
-        + Sync,
+    F: Fn(Vec<Switch>, Vec<Argument>, Vec<String>) -> Result<(), StrategyError> + Send + Sync,
 {
     pub fn new(runner: F) -> Self {
         Self { runner }
@@ -51,17 +44,15 @@ where
 
 impl<F> CommandStrategy for FunctionStrategy<F>
 where
-    F: Fn(Vec<String>, HashMap<String, String>, Vec<String>) -> Result<(), StrategyError>
-        + Send
-        + Sync,
+    F: Fn(Vec<Switch>, Vec<Argument>, Vec<String>) -> Result<(), StrategyError> + Send + Sync,
 {
     fn execute(
         &self,
-        options: Vec<String>,
-        arguments: HashMap<String, String>,
-        subcommands: Vec<String>,
+        options: Vec<Switch>,
+        arguments: Vec<Argument>,
+        params: Vec<String>,
     ) -> Result<(), StrategyError> {
-        (self.runner)(options, arguments, subcommands)
+        (self.runner)(options, arguments, params)
     }
 }
 
@@ -126,11 +117,11 @@ impl SubcommandCatalog for SubcommandRouter {
 impl CommandStrategy for SubcommandRouter {
     fn execute(
         &self,
-        _options: Vec<String>,
-        _arguments: HashMap<String, String>,
-        subcommands: Vec<String>,
+        _options: Vec<Switch>,
+        _arguments: Vec<Argument>,
+        params: Vec<String>,
     ) -> Result<(), StrategyError> {
-        let Some(subcommand_name) = subcommands.first() else {
+        let Some(subcommand_name) = params.first() else {
             return Err(StrategyError::invalid_arguments(format!(
                 "missing subcommand. available: {}",
                 self.available_subcommands()
@@ -144,7 +135,7 @@ impl CommandStrategy for SubcommandRouter {
             ))
         })?;
 
-        command.execute(subcommands[1..].to_vec())
+        command.execute(params[1..].to_vec())
     }
 
     fn subcommand_catalog(&self) -> Option<&dyn SubcommandCatalog> {
@@ -166,14 +157,14 @@ impl FallbackSubcommandStrategy {
 impl CommandStrategy for FallbackSubcommandStrategy {
     fn execute(
         &self,
-        options: Vec<String>,
-        arguments: HashMap<String, String>,
-        subcommands: Vec<String>,
+        options: Vec<Switch>,
+        arguments: Vec<Argument>,
+        params: Vec<String>,
     ) -> Result<(), StrategyError> {
-        if subcommands.is_empty() {
-            return self.strategy.execute(options, arguments, subcommands);
+        if params.is_empty() {
+            return self.strategy.execute(options, arguments, params);
         }
-        self.router.execute(options, arguments, subcommands)
+        self.router.execute(options, arguments, params)
     }
 
     fn subcommand_catalog(&self) -> Option<&dyn SubcommandCatalog> {

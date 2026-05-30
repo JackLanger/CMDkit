@@ -1,6 +1,28 @@
 use std::sync::{Arc, Mutex};
 
-use cmdkit::{CliCore, Command, command};
+use cmdkit::{Argument, CliCore, Command, Switch, command};
+
+fn format_switches(switches: &[Switch]) -> String {
+    switches
+        .iter()
+        .map(|switch| switch.name.clone())
+        .collect::<Vec<String>>()
+        .join(",")
+}
+
+fn format_arguments(arguments: &[Argument]) -> String {
+    arguments
+        .iter()
+        .map(|argument| {
+            format!(
+                "{}={}",
+                argument.name,
+                argument.value.clone().unwrap_or_default()
+            )
+        })
+        .collect::<Vec<String>>()
+        .join(",")
+}
 
 #[test]
 fn strategy_chain_handles_subtask_tokens() {
@@ -11,14 +33,14 @@ fn strategy_chain_handles_subtask_tokens() {
     core.register(Command::from_fn(
         "parent",
         "Parent command",
-        move |options, arguments, subcommands| {
+        move |options, arguments, params| {
             let mut guard = captured_for_strategy
                 .lock()
                 .expect("capture lock should not be poisoned");
             guard.push(vec![
-                format!("options={options:?}"),
-                format!("arguments={arguments:?}"),
-                format!("subcommands={subcommands:?}"),
+                format!("options={}", format_switches(&options)),
+                format!("arguments={}", format_arguments(&arguments)),
+                format!("params={params:?}"),
             ]);
             Ok(())
         },
@@ -37,9 +59,8 @@ fn strategy_chain_handles_subtask_tokens() {
         .lock()
         .expect("capture lock should not be poisoned");
     assert_eq!(guard.len(), 1);
-    assert!(guard[0][0].contains("options=[\"opt\"]"));
-    assert!(guard[0][1].contains("flag"));
-    assert!(guard[0][1].contains("value"));
+    assert!(guard[0][0].contains("options=opt"));
+    assert!(guard[0][1].contains("flag=value"));
     assert!(guard[0][2].contains("[]"));
 }
 
@@ -51,14 +72,14 @@ fn command_builder_registers_leaf_command_without_exposing_strategy_types() {
     let core = CliCore::new();
     core.register(
         command("echo", "Echo command")
-            .handler_fn(move |options, arguments, subcommands| {
+            .handler_fn(move |options, arguments, params| {
                 captured_for_handler
                     .lock()
                     .expect("capture lock should not be poisoned")
                     .push(vec![
-                        format!("options={options:?}"),
-                        format!("arguments={arguments:?}"),
-                        format!("subcommands={subcommands:?}"),
+                        format!("options={}", format_switches(&options)),
+                        format!("arguments={}", format_arguments(&arguments)),
+                        format!("params={params:?}"),
                     ]);
                 Ok(())
             })
@@ -76,9 +97,8 @@ fn command_builder_registers_leaf_command_without_exposing_strategy_types() {
     let guard = captured
         .lock()
         .expect("capture lock should not be poisoned");
-    assert!(guard[0][0].contains("options=[]"));
-    assert!(guard[0][1].contains("message"));
-    assert!(guard[0][1].contains("hello"));
+    assert!(guard[0][0].contains("options="));
+    assert!(guard[0][1].contains("message=hello"));
     assert!(guard[0][2].contains("[]"));
 }
 
@@ -91,19 +111,17 @@ fn command_builder_registers_recursive_subcommands_without_router_exposure() {
     core.register(
         command("tool", "tool root")
             .subcommand(command("run", "run tasks").subcommand(
-                command("one", "run one task").handler_fn(
-                    move |options, arguments, subcommands| {
-                        captured_for_handler
-                            .lock()
-                            .expect("capture lock should not be poisoned")
-                            .push(vec![
-                                format!("options={options:?}"),
-                                format!("arguments={arguments:?}"),
-                                format!("subcommands={subcommands:?}"),
-                            ]);
-                        Ok(())
-                    },
-                ),
+                command("one", "run one task").handler_fn(move |options, arguments, params| {
+                    captured_for_handler
+                        .lock()
+                        .expect("capture lock should not be poisoned")
+                        .push(vec![
+                            format!("options={}", format_switches(&options)),
+                            format!("arguments={}", format_arguments(&arguments)),
+                            format!("params={params:?}"),
+                        ]);
+                    Ok(())
+                }),
             ))
             .build(),
     );
@@ -121,8 +139,7 @@ fn command_builder_registers_recursive_subcommands_without_router_exposure() {
     let guard = captured
         .lock()
         .expect("capture lock should not be poisoned");
-    assert!(guard[0][0].contains("options=[]"));
-    assert!(guard[0][1].contains("value"));
-    assert!(guard[0][1].contains("alpha"));
+    assert!(guard[0][0].contains("options="));
+    assert!(guard[0][1].contains("value=alpha"));
     assert!(guard[0][2].contains("[]"));
 }
