@@ -36,6 +36,68 @@ impl HelpRenderer for PlainTextHelpRenderer {
                 command.metadata.description
             ));
 
+            if let Some(usage) = &command.metadata.usage {
+                out.push(format!("    {indent}  usage: {usage}"));
+            }
+
+            if let Some(long_description) = &command.metadata.long_description {
+                out.push(format!("    {indent}  details: {long_description}"));
+            }
+
+            if !command.metadata.aliases.is_empty() {
+                out.push(format!(
+                    "    {indent}  aliases: {}",
+                    command.metadata.aliases.join(", ")
+                ));
+            }
+
+            if !command.metadata.examples.is_empty() {
+                out.push(format!("    {indent}  examples:"));
+                for example in &command.metadata.examples {
+                    out.push(format!("    {indent}    - {example}"));
+                }
+            }
+
+            if !command.metadata.options.is_empty() {
+                out.push(format!("    {indent}  switches:"));
+                for option in &command.metadata.options {
+                    if option.aliases.is_empty() {
+                        out.push(format!(
+                            "    {indent}    - --{}: {}",
+                            option.name, option.description
+                        ));
+                    } else {
+                        out.push(format!(
+                            "    {indent}    - --{} (aliases: {}): {}",
+                            option.name,
+                            option.aliases.join(", "),
+                            option.description
+                        ));
+                    }
+                }
+            }
+
+            if !command.metadata.arguments.is_empty() {
+                out.push(format!("    {indent}  arguments:"));
+                for argument in &command.metadata.arguments {
+                    let required_suffix = if argument.required { " [required]" } else { "" };
+                    if argument.aliases.is_empty() {
+                        out.push(format!(
+                            "    {indent}    - --{}{}: {}",
+                            argument.name, required_suffix, argument.description
+                        ));
+                    } else {
+                        out.push(format!(
+                            "    {indent}    - --{}{} (aliases: {}): {}",
+                            argument.name,
+                            required_suffix,
+                            argument.aliases.join(", "),
+                            argument.description
+                        ));
+                    }
+                }
+            }
+
             if let Some(catalog) = command.subcommand_catalog() {
                 for child in catalog.subcommands() {
                     let child_path = format!("{path} {}", child.metadata.name);
@@ -213,6 +275,11 @@ impl CliCore {
     }
 
     /// Runs command dispatch against an explicit argv slice.
+    ///
+    /// Token semantics:
+    /// - `args[1]` is always treated as the top-level command selector.
+    /// - `args[2..]` is forwarded to the selected command for command-level parsing.
+    /// - Subcommand boundaries are resolved by the selected command strategy layer.
     ///
     /// This is useful for tests and embedding scenarios where argument sources
     /// are not read from process environment.

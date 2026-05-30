@@ -73,8 +73,9 @@ P1
     - Acceptance met: command intent is explicit at type level and metadata fields are grouped into `CommandMetaData`.
 
 P2
-[ ] Define and test strategy-facing token semantics for chained command arguments.
+[x] Define and test strategy-facing token semantics for chained command arguments.
     - Problem: command routing is intentionally first-token only; strategy-level chaining behavior and token contracts should be documented explicitly for consumers.
+    - Status: done. Documented explicit argv forwarding/boundary rules in README and core docs, and added edge-case tests for subcommand-boundary parsing ownership.
     - Scope: README.md + src/core.rs docs + tests/clicore_suite.rs.
     - Acceptance: explicit documented rule for `argv[2..]` forwarding and edge-case tests for strategy-owned subtask interpretation.
 
@@ -84,8 +85,9 @@ P2
     - Scope: src/cli.rs strategy capability + src/core.rs renderer traversal + tests/clicore_suite.rs.
     - Acceptance: recursive subcommand chains are discoverable for help output while `CommandStrategy::execute` remains the only required strategy method.
 
-[ ] Improve help rendering.
+[x] Improve help rendering.
     - Problem: default help output is plain text and currently surfaces only command name/description.
+    - Status: done. Plain-text help now includes optional metadata fields (usage, long description, examples, switches, arguments, aliases) and has stable test coverage for output formatting.
     - Scope: src/core.rs `PlainTextHelpRenderer` + tests.
     - Acceptance: renderer output can include optional metadata fields (`usage`, `long_description`, `examples`, `options`, `aliases`) with stable formatting tests.
 

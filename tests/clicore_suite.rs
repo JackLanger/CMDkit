@@ -518,6 +518,70 @@ fn subcommand_router_dispatches_recursively_to_deep_children() {
 }
 
 #[test]
+fn subcommand_boundary_defers_flag_parsing_to_child_command() {
+    let core = CliCore::new();
+    let child_calls = Arc::new(Mutex::new(Vec::new()));
+    let child_calls_for_strategy = Arc::clone(&child_calls);
+
+    let run = command("run", "run command")
+        .handler_fn(move |options, arguments, params| {
+            child_calls_for_strategy
+                .lock()
+                .expect("call log lock poisoned")
+                .push((options, arguments, params));
+            Ok(())
+        })
+        .with_arguments(vec![argument("mode", "execution mode")])
+        .build();
+
+    let root = Command::new("tool", "tool root", SubcommandRouter::new().register(run));
+    core.register(root);
+
+    let args = vec![
+        "app".to_string(),
+        "tool".to_string(),
+        "run".to_string(),
+        "--mode".to_string(),
+        "fast".to_string(),
+    ];
+
+    assert!(core.try_run_from_args(&args).is_ok());
+
+    let guard = child_calls.lock().expect("call log lock poisoned");
+    assert_eq!(guard.len(), 1);
+    assert!(guard[0].0.is_empty());
+    assert_eq!(argument_value(&guard[0].1, "mode"), Some("fast"));
+    assert!(guard[0].2.is_empty());
+}
+
+#[test]
+fn positional_tokens_before_subcommand_boundary_remain_current_level_params() {
+    let core = CliCore::new();
+
+    let run = command("run", "run command")
+        .handler_fn(|_, _, _| Ok(()))
+        .build();
+    let root = Command::new("tool", "tool root", SubcommandRouter::new().register(run));
+    core.register(root);
+
+    let args = vec![
+        "app".to_string(),
+        "tool".to_string(),
+        "pre".to_string(),
+        "run".to_string(),
+    ];
+
+    let result = core.try_run_from_args(&args);
+    match result {
+        Err(CliCoreError::StrategyExecution { source, .. }) => {
+            assert_eq!(source.kind, StrategyErrorKind::InvalidArguments);
+            assert!(source.message.contains("unknown subcommand 'pre'"));
+        }
+        _ => panic!("expected unknown subcommand error"),
+    }
+}
+
+#[test]
 fn help_renderer_includes_recursive_subcommands_from_router_catalog() {
     let core = CliCore::new();
 
@@ -577,6 +641,52 @@ fn help_renderer_includes_nested_catalogs_hidden_by_fallback_wrappers() {
             assert!(help.contains("tool outer: outer command"));
             assert!(help.contains("tool inner: inner branch"));
             assert!(help.contains("tool inner leaf: leaf command"));
+        }
+        _ => panic!("expected missing command error"),
+    }
+}
+
+#[test]
+fn help_renderer_includes_optional_metadata_fields() {
+    let core = CliCore::new();
+
+    let cmd = command("build", "Build a project")
+        .handler_fn(|_, _, _| Ok(()))
+        .with_aliases(vec!["b", "compile"])
+        .with_usage("build --path <dir> [--release]")
+        .with_long_description("Builds the project artifacts for distribution")
+        .with_examples(vec![
+            "app build --path ./demo".to_string(),
+            "app build --path ./demo --release".to_string(),
+        ])
+        .with_options(vec![
+            switch("release", "Build in release mode").with_aliases(vec!["r".to_string()]),
+        ])
+        .with_arguments(vec![
+            argument("path", "Project directory")
+                .with_aliases(vec!["p"])
+                .set_required(),
+        ])
+        .build();
+
+    core.register(cmd);
+
+    let args = vec!["app".to_string()];
+    let result = core.try_run_from_args(&args);
+
+    match result {
+        Err(CliCoreError::MissingCommand { help }) => {
+            assert!(help.contains("- build: Build a project"));
+            assert!(help.contains("usage: build --path <dir> [--release]"));
+            assert!(help.contains("details: Builds the project artifacts for distribution"));
+            assert!(help.contains("aliases: b, compile"));
+            assert!(help.contains("examples:"));
+            assert!(help.contains("- app build --path ./demo"));
+            assert!(help.contains("- app build --path ./demo --release"));
+            assert!(help.contains("switches:"));
+            assert!(help.contains("- --release (aliases: r): Build in release mode"));
+            assert!(help.contains("arguments:"));
+            assert!(help.contains("- --path [required] (aliases: p): Project directory"));
         }
         _ => panic!("expected missing command error"),
     }
