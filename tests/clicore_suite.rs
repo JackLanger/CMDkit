@@ -7,9 +7,10 @@ use cmdkit::{
     Argument, CliCore, CliCoreError, Command, CommandStrategy, StrategyError, StrategyErrorKind,
     SubcommandRouter, Switch, argument, command, switch,
 };
+type CallLog = Arc<Mutex<Vec<(Vec<Switch>, Vec<Argument>, Vec<String>)>>>;
 
 struct RecorderStrategy {
-    calls: Arc<Mutex<Vec<(Vec<Switch>, Vec<Argument>, Vec<String>)>>>,
+    calls: CallLog,
     error: Option<StrategyError>,
 }
 
@@ -34,7 +35,7 @@ impl CommandStrategy for RecorderStrategy {
 fn build_recorder_functionality(
     name: &str,
     description: &str,
-    calls: Arc<Mutex<Vec<(Vec<Switch>, Vec<Argument>, Vec<String>)>>>,
+    calls: CallLog,
     error: Option<StrategyError>,
 ) -> Command {
     Command::new(name, description, RecorderStrategy { calls, error })

@@ -284,7 +284,11 @@ impl CliCore {
     /// This is useful for tests and embedding scenarios where argument sources
     /// are not read from process environment.
     pub fn try_run_from_args(&self, args: &[String]) -> Result<(), CliCoreError> {
-        let binary = args.get(0).cloned().unwrap_or_else(|| "cli".to_string());
+        let binary = args
+            .iter()
+            .next()
+            .cloned()
+            .unwrap_or_else(|| "cli".to_string());
 
         if args.get(1).is_some_and(|arg| arg == "help") {
             println!("{}", self.render_help(&binary));
