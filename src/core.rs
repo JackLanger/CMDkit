@@ -197,7 +197,7 @@ pub struct CliCore {
 
 impl CliCore {
     /// Creates a [`CliCore`] instance from a [`CoreConfig`].
-    pub fn builder() ->CliCoreBuilder {
+    pub fn builder() -> CliCoreBuilder {
         CliCoreBuilder::new()
     }
 
@@ -289,11 +289,9 @@ pub struct CliCoreBuilder {
 
 
 impl CliCoreBuilder {
-    fn from(config: CoreConfig) -> Self {
-        Self {
-            config,
-            registry: Default::default(),
-        }
+    pub fn with_config(mut self ,config: CoreConfig) -> Self {
+        self.config = config;
+        self
     }
 
     /// Registers a command into this runtime instance.
@@ -304,7 +302,10 @@ impl CliCoreBuilder {
     }
 
     fn new() -> CliCoreBuilder {
-        Self::from(CoreConfig::new())
+        Self {
+            config : Default::default(),
+            registry : Default::default(),
+        }
     }
     pub fn with_commands(mut self, commands: &[Command]) -> Self {
         for cmd in commands {
