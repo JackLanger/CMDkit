@@ -208,7 +208,7 @@ impl Error for CliCoreError {
 /// Each [`CliCore`] owns a lazily initialized command registry and can be reused
 /// across multiple invocations without relying on process-global mutable state.
 pub struct CliCore {
-    registry: OnceLock<Arc<RwLock<CommandRegistry>>>,
+    registry: RwLock<CommandRegistry>,
     config: CoreConfig,
 }
 
@@ -222,7 +222,7 @@ impl CliCore {
     /// Creates a [`CliCore`] instance from a [`CoreConfig`].
     pub fn create(config: CoreConfig) -> Self {
         Self {
-            registry: OnceLock::new(),
+            registry: RwLock::new(CommandRegistry::new()),
             config,
         }
     }
@@ -230,7 +230,7 @@ impl CliCore {
     /// Creates a new CLI runtime with lazy registry initialization.
     pub fn new() -> Self {
         Self {
-            registry: OnceLock::new(),
+            registry: RwLock::new(CommandRegistry::new()),
             config: CoreConfig::new(),
         }
     }
@@ -328,20 +328,17 @@ impl CliCore {
         self.try_run_from_args(&argv)
     }
 
-    fn registry(&self) -> &Arc<RwLock<CommandRegistry>> {
-        self.registry
-            .get_or_init(|| Arc::new(RwLock::new(CommandRegistry::new())))
-    }
+
 
     fn read_registry(&self) -> RwLockReadGuard<'_, CommandRegistry> {
-        match self.registry().read() {
+        match self.registry.read() {
             Ok(guard) => guard,
             Err(poisoned) => self.handle_poison(poisoned, "read"),
         }
     }
 
     fn write_registry(&self) -> RwLockWriteGuard<'_, CommandRegistry> {
-        match self.registry().write() {
+        match self.registry.write() {
             Ok(guard) => guard,
             Err(poisoned) => self.handle_poison(poisoned, "write"),
         }
