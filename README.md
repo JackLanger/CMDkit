@@ -41,6 +41,21 @@ cargo add cmdkit
 
 Each `CliCore` instance owns its own registry. Runtime state is not shared across instances.
 
+### Architecture Contract
+
+The runtime model follows a strict build-then-dispatch lifecycle:
+
+- Mutation is builder-only: command registration and config changes happen in `CliCoreBuilder`.
+- `build()` is the freeze boundary: once built, `CliCore` has no runtime mutation API.
+- No process-global mutable state: each `CliCore` instance owns an isolated registry and config.
+- Runtime operations are read-only: dispatch and lookup use immutable access to core state.
+- Dispatch is deterministic: `try_run_from_args` takes explicit argv input and returns structured errors.
+
+Invariants:
+
+- A built `CliCore` never mutates its registry or config during runtime.
+- Two distinct `CliCore` instances do not share mutable state and cannot affect each other.
+
 ### Command Construction
 
 - `Command::new(name, description, strategy)`
