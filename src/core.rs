@@ -1,12 +1,6 @@
-use std::{
-    error::Error,
-    fmt,
-    sync::{Arc},
-};
+use std::{error::Error, fmt, sync::Arc};
 
 use crate::{Command, StrategyError, cli::CommandRegistry};
-
-
 
 /// Renders user-facing help output from registered command metadata.
 pub trait HelpRenderer: Send + Sync {
@@ -194,13 +188,11 @@ pub struct CliCore {
     config: CoreConfig,
 }
 
-
 impl CliCore {
     /// Creates a [`CliCore`] instance from a [`CoreConfig`].
     pub fn builder() -> CliCoreBuilder {
         CliCoreBuilder::new()
     }
-
 
     /// Retrieves a registered command by name.
     pub fn get(&self, name: &str) -> Option<Command> {
@@ -221,8 +213,10 @@ impl CliCore {
 
     /// Runs the CLI with pre-built commands and recoverable errors.
     pub fn try_run_with_commands(commands: &[Command]) -> Result<(), CliCoreError> {
-
-        Self::builder().with_commands(commands).build().try_run_from_env()
+        Self::builder()
+            .with_commands(commands)
+            .build()
+            .try_run_from_env()
     }
 
     /// Runs command dispatch against an explicit argv slice.
@@ -278,33 +272,29 @@ impl CliCore {
         let argv = std::env::args().collect::<Vec<String>>();
         self.try_run_from_args(&argv)
     }
-
 }
-
 
 pub struct CliCoreBuilder {
     config: CoreConfig,
     registry: CommandRegistry,
 }
 
-
 impl CliCoreBuilder {
-    pub fn with_config(mut self ,config: CoreConfig) -> Self {
+    pub fn with_config(mut self, config: CoreConfig) -> Self {
         self.config = config;
         self
     }
 
     /// Registers a command into this runtime instance.
     pub fn register(mut self, command: Command) -> Self {
-
         self.registry.register(command);
         self
     }
 
     fn new() -> CliCoreBuilder {
         Self {
-            config : Default::default(),
-            registry : Default::default(),
+            config: Default::default(),
+            registry: Default::default(),
         }
     }
     pub fn with_commands(mut self, commands: &[Command]) -> Self {
@@ -321,7 +311,6 @@ impl CliCoreBuilder {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests;

@@ -78,18 +78,18 @@ fn test_register_duplicate_name_overwrites() {
         .register(Command::new(name.clone(), "updated", TestStrategyV2))
         .build();
 
-
     let retrieved = core.get(&name).expect("Functionality should be registered");
     assert_eq!(retrieved.metadata.description, "updated");
 }
 
 #[test]
 fn test_instances_are_isolated() {
-
     let core_b = CliCore::builder().build();
     let name = unique_name("isolated");
 
-    let core_a = CliCore::builder().register(Command::new(name.clone(), "in a", TestStrategy)).build();
+    let core_a = CliCore::builder()
+        .register(Command::new(name.clone(), "in a", TestStrategy))
+        .build();
 
     assert!(core_a.get(&name).is_some());
     assert!(core_b.get(&name).is_none());

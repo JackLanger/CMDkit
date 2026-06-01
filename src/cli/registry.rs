@@ -9,7 +9,6 @@ pub(crate) struct CommandRegistry {
 }
 
 impl CommandRegistry {
-
     pub(crate) fn get(&self, name: &str) -> Option<Command> {
         self.commands.get(name).cloned()
     }

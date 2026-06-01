@@ -1,4 +1,4 @@
-use crate::{ core::CoreConfig};
+use crate::core::CoreConfig;
 
 #[test]
 fn core_config_defaults_to_plain_text_help_renderer() {

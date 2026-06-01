@@ -9,9 +9,7 @@ pub use cli::{
     StrategyError, StrategyErrorKind, SubcommandCatalog, SubcommandRouter, Switch, argument,
     command, switch,
 };
-pub use core::{
-    CliCore, CliCoreError, CoreConfig, HelpRenderer,  PlainTextHelpRenderer,
-};
+pub use core::{CliCore, CliCoreError, CoreConfig, HelpRenderer, PlainTextHelpRenderer};
 
 /// Runs a fresh default [`CliCore`] instance with pre-built commands.
 pub fn run_with_commands(commands: &[Command]) {
@@ -22,4 +20,3 @@ pub fn run_with_commands(commands: &[Command]) {
 pub fn try_run_with_commands(commands: &[Command]) -> Result<(), CliCoreError> {
     core::CliCore::try_run_with_commands(commands)
 }
-
