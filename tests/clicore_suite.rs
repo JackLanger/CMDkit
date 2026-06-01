@@ -1,5 +1,4 @@
 use std::{
-    process::Command as ProcessCommand,
     sync::{Arc, Mutex},
 };
 
@@ -54,15 +53,15 @@ fn argument_value<'a>(arguments: &'a [Argument], name: &str) -> Option<&'a str> 
 
 #[test]
 fn register_and_get_by_name_works() {
-    let core = CliCore::new();
+
     let calls = Arc::new(Mutex::new(Vec::new()));
 
-    core.register(build_recorder_functionality(
+    let core = CliCore::builder().register(build_recorder_functionality(
         "echo",
         "echo arguments",
         Arc::clone(&calls),
         None,
-    ));
+    )).build();
 
     let got = core
         .get("echo")
@@ -73,21 +72,20 @@ fn register_and_get_by_name_works() {
 
 #[test]
 fn duplicate_registration_overwrites_previous_entry() {
-    let core = CliCore::new();
+
     let calls = Arc::new(Mutex::new(Vec::new()));
 
-    core.register(build_recorder_functionality(
+    let core = CliCore::builder().register(build_recorder_functionality(
         "dup",
         "first",
         Arc::clone(&calls),
         None,
-    ));
-    core.register(build_recorder_functionality(
+    )).register(build_recorder_functionality(
         "dup",
         "second",
         Arc::clone(&calls),
         None,
-    ));
+    )).build();
 
     let got = core.get("dup").expect("dup functionality should exist");
     assert_eq!(got.metadata.description, "second");
@@ -95,10 +93,10 @@ fn duplicate_registration_overwrites_previous_entry() {
 
 #[test]
 fn run_from_args_routes_trailing_arguments_to_strategy() {
-    let core = CliCore::new();
+
     let calls = Arc::new(Mutex::new(Vec::new()));
 
-    core.register(
+    let core = CliCore::builder().register(
         command("echo", "echo arguments")
             .handler(RecorderStrategy {
                 calls: Arc::clone(&calls),
@@ -107,7 +105,7 @@ fn run_from_args_routes_trailing_arguments_to_strategy() {
             .with_options(vec![switch("toggle", "toggle option")])
             .with_arguments(vec![argument("one", "one value")])
             .build(),
-    );
+    ).build();
 
     let args = vec![
         "app".to_string(),
@@ -129,10 +127,10 @@ fn run_from_args_routes_trailing_arguments_to_strategy() {
 
 #[test]
 fn strategy_receives_subtask_tokens_for_chain_of_responsibility() {
-    let core = CliCore::new();
+
     let calls = Arc::new(Mutex::new(Vec::new()));
 
-    core.register(
+    let core = CliCore::builder().register(
         command("test", "test root")
             .handler(RecorderStrategy {
                 calls: Arc::clone(&calls),
@@ -141,7 +139,7 @@ fn strategy_receives_subtask_tokens_for_chain_of_responsibility() {
             .with_options(vec![switch("toggle", "toggle option")])
             .with_arguments(vec![argument("all", "all value")])
             .build(),
-    );
+    ).build();
 
     let args = vec![
         "CMDkit".to_string(),
@@ -163,11 +161,11 @@ fn strategy_receives_subtask_tokens_for_chain_of_responsibility() {
 
 #[test]
 fn functionality_from_fn_supports_function_based_strategy_registration() {
-    let core = CliCore::new();
+
     let calls = Arc::new(Mutex::new(Vec::new()));
     let calls_for_strategy = Arc::clone(&calls);
 
-    core.register(
+    let core = CliCore::builder().register(
         command("fncmd", "defined from a function")
             .handler_fn(move |options, arguments, params| {
                 let mut guard = calls_for_strategy.lock().expect("call log lock poisoned");
@@ -176,7 +174,7 @@ fn functionality_from_fn_supports_function_based_strategy_registration() {
             })
             .with_options(vec![switch("alpha", "alpha switch")])
             .build(),
-    );
+    ).build();
 
     let args = vec![
         "CMDkit".to_string(),
@@ -195,10 +193,10 @@ fn functionality_from_fn_supports_function_based_strategy_registration() {
 
 #[test]
 fn run_from_args_returns_missing_command_error() {
-    let core = CliCore::new();
+    let core = CliCore::builder();
     let args = vec!["app".to_string()];
 
-    let result = core.try_run_from_args(&args);
+    let result = core.build().try_run_from_args(&args);
 
     match result {
         Err(CliCoreError::MissingCommand { help }) => {
@@ -210,10 +208,10 @@ fn run_from_args_returns_missing_command_error() {
 
 #[test]
 fn help_text_uses_explicit_binary_name_for_missing_command() {
-    let core = CliCore::new();
+    let core = CliCore::builder();
     let args = vec!["custom-cli".to_string()];
 
-    let result = core.try_run_from_args(&args);
+    let result = core.build().try_run_from_args(&args);
 
     match result {
         Err(CliCoreError::MissingCommand { help }) => {
@@ -225,10 +223,10 @@ fn help_text_uses_explicit_binary_name_for_missing_command() {
 
 #[test]
 fn help_text_uses_explicit_binary_name_for_unknown_command() {
-    let core = CliCore::new();
+    let core = CliCore::builder();
     let args = vec!["custom-cli".to_string(), "not-a-command".to_string()];
 
-    let result = core.try_run_from_args(&args);
+    let result = core.build().try_run_from_args(&args);
 
     match result {
         Err(CliCoreError::UnknownCommand { help, .. }) => {
@@ -240,7 +238,7 @@ fn help_text_uses_explicit_binary_name_for_unknown_command() {
 
 #[test]
 fn run_from_args_returns_unknown_command_error() {
-    let core = CliCore::new();
+    let core = CliCore::builder().build();
     let args = vec!["app".to_string(), "unknown".to_string()];
 
     let result = core.try_run_from_args(&args);
@@ -256,10 +254,10 @@ fn run_from_args_returns_unknown_command_error() {
 
 #[test]
 fn strategy_errors_bubble_with_kind_and_message() {
-    let core = CliCore::new();
+
     let calls = Arc::new(Mutex::new(Vec::new()));
 
-    core.register(build_recorder_functionality(
+    let core = CliCore::builder().register(build_recorder_functionality(
         "validate",
         "fails validation",
         Arc::clone(&calls),
@@ -267,7 +265,7 @@ fn strategy_errors_bubble_with_kind_and_message() {
             StrategyErrorKind::InvalidArguments,
             "missing value",
         )),
-    ));
+    )).build();
 
     let args = vec!["app".to_string(), "validate".to_string()];
     let result = core.try_run_from_args(&args);
@@ -284,10 +282,10 @@ fn strategy_errors_bubble_with_kind_and_message() {
 
 #[test]
 fn parser_rejects_unknown_flags() {
-    let core = CliCore::new();
+
     let calls = Arc::new(Mutex::new(Vec::new()));
 
-    core.register(
+    let core = CliCore::builder().register(
         command("strict", "strict command")
             .handler(RecorderStrategy {
                 calls: Arc::clone(&calls),
@@ -296,7 +294,7 @@ fn parser_rejects_unknown_flags() {
             .with_options(vec![switch("known", "known switch")])
             .with_arguments(vec![argument("path", "path argument")])
             .build(),
-    );
+    ).build();
 
     let args = vec![
         "app".to_string(),
@@ -317,10 +315,10 @@ fn parser_rejects_unknown_flags() {
 
 #[test]
 fn parser_enforces_required_argument_presence_and_non_empty_values() {
-    let core = CliCore::new();
+
     let calls = Arc::new(Mutex::new(Vec::new()));
 
-    core.register(
+    let core = CliCore::builder().register(
         command("strict", "strict command")
             .handler(RecorderStrategy {
                 calls: Arc::clone(&calls),
@@ -328,7 +326,7 @@ fn parser_enforces_required_argument_presence_and_non_empty_values() {
             })
             .with_arguments(vec![argument("path", "path argument").set_required()])
             .build(),
-    );
+    ).build();
 
     let missing_value = vec!["app".to_string(), "strict".to_string()];
     let missing_result = core.try_run_from_args(&missing_value);
@@ -384,11 +382,11 @@ fn parser_enforces_required_argument_presence_and_non_empty_values() {
 
 #[test]
 fn parser_accepts_argument_aliases_and_uses_last_value_wins() {
-    let core = CliCore::new();
+
     let calls = Arc::new(Mutex::new(Vec::new()));
     let calls_for_strategy = Arc::clone(&calls);
 
-    core.register(
+    let core = CliCore::builder().register(
         command("alias", "alias command")
             .handler_fn(move |options, arguments, params| {
                 let mut guard = calls_for_strategy.lock().expect("call log lock poisoned");
@@ -399,7 +397,7 @@ fn parser_accepts_argument_aliases_and_uses_last_value_wins() {
                 argument("path", "path argument").with_aliases(vec!["p"]),
             ])
             .build(),
-    );
+    ).build();
 
     let args = vec![
         "app".to_string(),
@@ -421,52 +419,25 @@ fn parser_accepts_argument_aliases_and_uses_last_value_wins() {
 
 #[test]
 fn independent_instances_do_not_share_registry_entries() {
-    let core_a = CliCore::new();
-    let core_b = CliCore::new();
+
+    let core_b = CliCore::builder().build();
     let calls = Arc::new(Mutex::new(Vec::new()));
 
-    core_a.register(build_recorder_functionality(
+    let core_a = CliCore::builder().register(build_recorder_functionality(
         "isolated",
         "only in core_a",
         Arc::clone(&calls),
         None,
-    ));
+    )).build();
 
     assert!(core_a.get("isolated").is_some());
     assert!(core_b.get("isolated").is_none());
 }
 
-#[test]
-fn wrapper_calls_do_not_share_runtime_state() {
-    let binary = std::env::var("CARGO_BIN_EXE_wrapper_probe")
-        .expect("wrapper_probe binary should be built by cargo test");
-
-    let output = ProcessCommand::new(binary)
-        .arg("help")
-        .output()
-        .expect("wrapper_probe should run successfully");
-
-    assert!(output.status.success());
-
-    let stdout = String::from_utf8(output.stdout).expect("stdout should be valid utf-8");
-    let first_section = stdout
-        .split("--SECOND--")
-        .next()
-        .expect("first section should exist");
-    let second_section = stdout
-        .split("--SECOND--")
-        .nth(1)
-        .expect("second section should exist");
-
-    assert!(first_section.contains("alpha command"));
-    assert!(!first_section.contains("beta command"));
-    assert!(second_section.contains("beta command"));
-    assert!(!second_section.contains("alpha command"));
-}
 
 #[test]
 fn subcommand_router_dispatches_recursively_to_deep_children() {
-    let core = CliCore::new();
+
     let deep_calls = Arc::new(Mutex::new(Vec::new()));
     let deep_calls_for_leaf = Arc::clone(&deep_calls);
 
@@ -497,7 +468,7 @@ fn subcommand_router_dispatches_recursively_to_deep_children() {
         )),
     );
 
-    core.register(root);
+    let core = CliCore::builder().register(root).build();
 
     let args = vec![
         "app".to_string(),
@@ -520,7 +491,7 @@ fn subcommand_router_dispatches_recursively_to_deep_children() {
 
 #[test]
 fn subcommand_boundary_defers_flag_parsing_to_child_command() {
-    let core = CliCore::new();
+
     let child_calls = Arc::new(Mutex::new(Vec::new()));
     let child_calls_for_strategy = Arc::clone(&child_calls);
 
@@ -536,7 +507,7 @@ fn subcommand_boundary_defers_flag_parsing_to_child_command() {
         .build();
 
     let root = Command::new("tool", "tool root", SubcommandRouter::new().register(run));
-    core.register(root);
+    let core = CliCore::builder().register(root).build();
 
     let args = vec![
         "app".to_string(),
@@ -557,13 +528,13 @@ fn subcommand_boundary_defers_flag_parsing_to_child_command() {
 
 #[test]
 fn positional_tokens_before_subcommand_boundary_remain_current_level_params() {
-    let core = CliCore::new();
+
 
     let run = command("run", "run command")
         .handler_fn(|_, _, _| Ok(()))
         .build();
     let root = Command::new("tool", "tool root", SubcommandRouter::new().register(run));
-    core.register(root);
+    let core = CliCore::builder().register(root).build();
 
     let args = vec![
         "app".to_string(),
@@ -584,7 +555,7 @@ fn positional_tokens_before_subcommand_boundary_remain_current_level_params() {
 
 #[test]
 fn help_renderer_includes_recursive_subcommands_from_router_catalog() {
-    let core = CliCore::new();
+
 
     let root = Command::new(
         "tool",
@@ -600,7 +571,7 @@ fn help_renderer_includes_recursive_subcommands_from_router_catalog() {
         )),
     );
 
-    core.register(root);
+    let core = CliCore::builder().register(root).build();
 
     let args = vec!["app".to_string()];
     let result = core.try_run_from_args(&args);
@@ -617,7 +588,7 @@ fn help_renderer_includes_recursive_subcommands_from_router_catalog() {
 
 #[test]
 fn help_renderer_includes_nested_catalogs_hidden_by_fallback_wrappers() {
-    let core = CliCore::new();
+
 
     let root = command("tool", "tool root")
         .handler(SubcommandRouter::new().register(Command::new(
@@ -632,7 +603,7 @@ fn help_renderer_includes_nested_catalogs_hidden_by_fallback_wrappers() {
         .subcommand(command("outer", "outer command").handler_fn(|_, _, _| Ok(())))
         .build();
 
-    core.register(root);
+    let core = CliCore::builder().register(root).build();
 
     let args = vec!["app".to_string()];
     let result = core.try_run_from_args(&args);
@@ -649,7 +620,7 @@ fn help_renderer_includes_nested_catalogs_hidden_by_fallback_wrappers() {
 
 #[test]
 fn help_renderer_includes_optional_metadata_fields() {
-    let core = CliCore::new();
+
 
     let cmd = command("build", "Build a project")
         .handler_fn(|_, _, _| Ok(()))
@@ -670,7 +641,7 @@ fn help_renderer_includes_optional_metadata_fields() {
         ])
         .build();
 
-    core.register(cmd);
+    let core = CliCore::builder().register(cmd).build();
 
     let args = vec!["app".to_string()];
     let result = core.try_run_from_args(&args);

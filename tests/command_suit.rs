@@ -28,9 +28,7 @@ fn format_arguments(arguments: &[Argument]) -> String {
 fn strategy_chain_handles_subtask_tokens() {
     let captured = Arc::new(Mutex::new(Vec::new()));
     let captured_for_strategy = Arc::clone(&captured);
-
-    let core = CliCore::new();
-    core.register(
+    let core = CliCore::builder().register(
         command("parent", "Parent command")
             .handler_fn(move |options, arguments, params| {
                 let mut guard = captured_for_strategy
@@ -46,7 +44,7 @@ fn strategy_chain_handles_subtask_tokens() {
             .with_options(vec![switch("opt", "option")])
             .with_arguments(vec![argument("flag", "flag")])
             .build(),
-    );
+    ).build();
 
     let args = vec![
         "app".to_string(),
@@ -71,8 +69,7 @@ fn command_builder_registers_leaf_command_without_exposing_strategy_types() {
     let captured = Arc::new(Mutex::new(Vec::new()));
     let captured_for_handler = Arc::clone(&captured);
 
-    let core = CliCore::new();
-    core.register(
+    let core = CliCore::builder().register(
         command("echo", "Echo command")
             .handler_fn(move |options, arguments, params| {
                 captured_for_handler
@@ -87,7 +84,7 @@ fn command_builder_registers_leaf_command_without_exposing_strategy_types() {
             })
             .with_arguments(vec![argument("message", "message")])
             .build(),
-    );
+    ).build();
 
     let args = vec![
         "app".to_string(),
@@ -110,8 +107,7 @@ fn command_builder_registers_recursive_subcommands_without_router_exposure() {
     let captured = Arc::new(Mutex::new(Vec::new()));
     let captured_for_handler = Arc::clone(&captured);
 
-    let core = CliCore::new();
-    core.register(
+    let core = CliCore::builder().register(
         command("tool", "tool root")
             .subcommand(
                 command("run", "run tasks").subcommand(
@@ -131,7 +127,7 @@ fn command_builder_registers_recursive_subcommands_without_router_exposure() {
                 ),
             )
             .build(),
-    );
+    ).build();
 
     let args = vec![
         "app".to_string(),

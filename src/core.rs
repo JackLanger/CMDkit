@@ -1,23 +1,12 @@
 use std::{
     error::Error,
     fmt,
-    sync::{Arc, OnceLock, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard},
+    sync::{Arc},
 };
 
 use crate::{Command, StrategyError, cli::CommandRegistry};
 
-/// Controls how [`CliCore`] responds when the registry lock is poisoned.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum LockPoisonPolicy {
-    /// Panic immediately when a poisoned lock is encountered.
-    ///
-    /// This is the default for CLI applications where lock poisoning indicates a
-    /// serious bug and silent recovery would hide inconsistent state.
-    FailFast = 0,
-    /// Recover by taking the poisoned inner value.
-    Recover = 1,
-}
+
 
 /// Renders user-facing help output from registered command metadata.
 pub trait HelpRenderer: Send + Sync {
@@ -126,8 +115,8 @@ impl HelpRenderer for PlainTextHelpRenderer {
     }
 }
 
+#[derive(Clone)]
 pub struct CoreConfig {
-    pub lock_poison_policy: LockPoisonPolicy,
     pub help_renderer: Arc<dyn HelpRenderer>,
 }
 
@@ -135,15 +124,8 @@ impl CoreConfig {
     // creates a default config object
     pub fn new() -> Self {
         Self {
-            lock_poison_policy: LockPoisonPolicy::FailFast,
             help_renderer: Arc::new(PlainTextHelpRenderer),
         }
-    }
-
-    /// Sets the lock-poison policy in a builder-friendly way.
-    pub fn with_lock_poison_policy(mut self, policy: LockPoisonPolicy) -> Self {
-        self.lock_poison_policy = policy;
-        self
     }
 
     /// Replaces the help renderer in a builder-friendly way.
@@ -208,70 +190,39 @@ impl Error for CliCoreError {
 /// Each [`CliCore`] owns a lazily initialized command registry and can be reused
 /// across multiple invocations without relying on process-global mutable state.
 pub struct CliCore {
-    registry: RwLock<CommandRegistry>,
+    registry: CommandRegistry,
     config: CoreConfig,
 }
 
-impl Default for CliCore {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 impl CliCore {
     /// Creates a [`CliCore`] instance from a [`CoreConfig`].
-    pub fn create(config: CoreConfig) -> Self {
-        Self {
-            registry: RwLock::new(CommandRegistry::new()),
-            config,
-        }
+    pub fn builder() ->CliCoreBuilder {
+        CliCoreBuilder::new()
     }
 
-    /// Creates a new CLI runtime with lazy registry initialization.
-    pub fn new() -> Self {
-        Self {
-            registry: RwLock::new(CommandRegistry::new()),
-            config: CoreConfig::new(),
-        }
-    }
-
-    /// Returns the current lock-poison handling policy for this runtime.
-    pub fn lock_poison_policy(&self) -> LockPoisonPolicy {
-        self.config.lock_poison_policy
-    }
-
-    /// Registers a command into this runtime instance.
-    pub fn register(&self, command: Command) -> &Self {
-        let mut guard = self.write_registry();
-        guard.register(command);
-        self
-    }
 
     /// Retrieves a registered command by name.
     pub fn get(&self, name: &str) -> Option<Command> {
-        let guard = self.read_registry();
-        guard.get(name)
+        self.registry.get(name)
     }
 
     /// Returns all currently registered commands.
     pub fn get_all(&self) -> Vec<Command> {
-        let guard = self.read_registry();
-        guard.get_all()
+        self.registry.get_all()
     }
 
     /// Runs the CLI with pre-built commands and prints user-facing errors.
-    pub fn run_with_commands(&self, commands: &[Command]) {
-        if let Err(e) = self.try_run_with_commands(commands) {
+    pub fn run_with_commands(commands: &[Command]) {
+        if let Err(e) = Self::try_run_with_commands(commands) {
             eprintln!("{e}");
         }
     }
 
     /// Runs the CLI with pre-built commands and recoverable errors.
-    pub fn try_run_with_commands(&self, commands: &[Command]) -> Result<(), CliCoreError> {
-        for command in commands {
-            self.register(command.clone());
-        }
-        self.try_run_from_env()
+    pub fn try_run_with_commands(commands: &[Command]) -> Result<(), CliCoreError> {
+
+        Self::builder().with_commands(commands).build().try_run_from_env()
     }
 
     /// Runs command dispatch against an explicit argv slice.
@@ -328,41 +279,48 @@ impl CliCore {
         self.try_run_from_args(&argv)
     }
 
+}
 
 
-    fn read_registry(&self) -> RwLockReadGuard<'_, CommandRegistry> {
-        match self.registry.read() {
-            Ok(guard) => guard,
-            Err(poisoned) => self.handle_poison(poisoned, "read"),
+pub struct CliCoreBuilder {
+    config: CoreConfig,
+    registry: CommandRegistry,
+}
+
+
+impl CliCoreBuilder {
+    fn from(config: CoreConfig) -> Self {
+        Self {
+            config,
+            registry: Default::default(),
         }
     }
 
-    fn write_registry(&self) -> RwLockWriteGuard<'_, CommandRegistry> {
-        match self.registry.write() {
-            Ok(guard) => guard,
-            Err(poisoned) => self.handle_poison(poisoned, "write"),
-        }
+    /// Registers a command into this runtime instance.
+    pub fn register(mut self, command: Command) -> Self {
+
+        self.registry.register(command);
+        self
     }
 
-    fn handle_poison<T>(&self, poisoned: PoisonError<T>, operation: &str) -> T {
-        match self.lock_poison_policy() {
-            LockPoisonPolicy::FailFast => {
-                panic!("CMDkit registry lock poisoned during {operation} operation")
-            }
-            LockPoisonPolicy::Recover => poisoned.into_inner(),
+    fn new() -> CliCoreBuilder {
+        Self::from(CoreConfig::new())
+    }
+    pub fn with_commands(mut self, commands: &[Command]) -> Self {
+        for cmd in commands {
+            self.registry.register(cmd.clone());
+        }
+        self
+    }
+
+    pub fn build(&self) -> CliCore {
+        CliCore {
+            registry: self.registry.clone(),
+            config: self.config.clone(),
         }
     }
 }
 
-/// Runs a fresh default [`CliCore`] instance with pre-built commands.
-pub fn run_with_commands(commands: &[Command]) {
-    CliCore::new().run_with_commands(commands)
-}
-
-/// Runs a fresh default [`CliCore`] instance with pre-built commands.
-pub fn try_run_with_commands(commands: &[Command]) -> Result<(), CliCoreError> {
-    CliCore::new().try_run_with_commands(commands)
-}
 
 #[cfg(test)]
 mod tests;

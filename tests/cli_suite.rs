@@ -38,11 +38,10 @@ impl CommandStrategy for TestStrategyV2 {
 
 #[test]
 fn test_register_and_get() {
-    let core = CliCore::new();
     let name = unique_name("register_get");
     let functionality = Command::new(name.clone(), "A test functionality", TestStrategy);
 
-    core.register(functionality.clone());
+    let core = CliCore::builder().register(functionality.clone()).build();
     let retrieved = core.get(&name).expect("Functionality should be registered");
     assert_eq!(retrieved.metadata.name, functionality.metadata.name);
     assert_eq!(
@@ -53,18 +52,17 @@ fn test_register_and_get() {
 
 #[test]
 fn test_get_all() {
-    let core = CliCore::new();
     let name = unique_name("get_all");
     let functionality = Command::new(name.clone(), "A test functionality", TestStrategy);
 
-    core.register(functionality.clone());
+    let core = CliCore::builder().register(functionality.clone()).build();
     let all = core.get_all();
     assert!(all.iter().any(|f| f.metadata.name == name));
 }
 
 #[test]
 fn test_non_existent() {
-    let core = CliCore::new();
+    let core = CliCore::builder().build();
     let result = core.get("nonexistent");
     assert!(
         result.is_none(),
@@ -74,12 +72,12 @@ fn test_non_existent() {
 
 #[test]
 fn test_register_duplicate_name_overwrites() {
-    let core = CliCore::new();
     let name = unique_name("duplicate");
+    let core = CliCore::builder()
+        .register(Command::new(name.clone(), "original", TestStrategy))
+        .register(Command::new(name.clone(), "updated", TestStrategyV2))
+        .build();
 
-    core.register(Command::new(name.clone(), "original", TestStrategy));
-
-    core.register(Command::new(name.clone(), "updated", TestStrategyV2));
 
     let retrieved = core.get(&name).expect("Functionality should be registered");
     assert_eq!(retrieved.metadata.description, "updated");
@@ -87,11 +85,11 @@ fn test_register_duplicate_name_overwrites() {
 
 #[test]
 fn test_instances_are_isolated() {
-    let core_a = CliCore::new();
-    let core_b = CliCore::new();
+
+    let core_b = CliCore::builder().build();
     let name = unique_name("isolated");
 
-    core_a.register(Command::new(name.clone(), "in a", TestStrategy));
+    let core_a = CliCore::builder().register(Command::new(name.clone(), "in a", TestStrategy)).build();
 
     assert!(core_a.get(&name).is_some());
     assert!(core_b.get(&name).is_none());

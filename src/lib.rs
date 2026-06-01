@@ -10,19 +10,16 @@ pub use cli::{
     command, switch,
 };
 pub use core::{
-    CliCore, CliCoreError, CoreConfig, HelpRenderer, LockPoisonPolicy, PlainTextHelpRenderer,
+    CliCore, CliCoreError, CoreConfig, HelpRenderer,  PlainTextHelpRenderer,
 };
 
 /// Runs a fresh default [`CliCore`] instance with pre-built commands.
 pub fn run_with_commands(commands: &[Command]) {
-    core::run_with_commands(commands)
+    core::CliCore::run_with_commands(commands)
 }
 
 /// Runs a fresh default [`CliCore`] instance with pre-built commands.
 pub fn try_run_with_commands(commands: &[Command]) -> Result<(), CliCoreError> {
-    core::try_run_with_commands(commands)
+    core::CliCore::try_run_with_commands(commands)
 }
 
-pub fn init() -> CliCore {
-    CliCore::new()
-}
