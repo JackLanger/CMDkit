@@ -32,29 +32,29 @@ cargo add cmdkit
 
 ### Runtime
 
-- `CliCore::new()` creates a runtime with default configuration.
-- `CliCore::builder()` starts a fluent builder for registering commands before building the runtime.
-- `CliCore::create(config)` uses custom `CoreConfig`.
+- `CMDKit::new()` creates a runtime with default configuration.
+- `CMDKit::builder()` starts a fluent builder for registering commands before building the runtime.
+- `CMDKit::create(config)` uses custom `CoreConfig`.
 - `register`, `get`, and `get_all` manage command registration on a runtime instance.
 - `try_run_from_args(&[String])` is ideal for tests and embedding.
 - `run_with_commands` and `try_run_with_commands` are convenience wrappers.
 
-Each `CliCore` instance owns its own registry. Runtime state is not shared across instances.
+Each `CMDKit` instance owns its own registry. Runtime state is not shared across instances.
 
 ### Architecture Contract
 
 The runtime model follows a strict build-then-dispatch lifecycle:
 
-- Mutation is builder-only: command registration and config changes happen in `CliCoreBuilder`.
-- `build()` is the freeze boundary: once built, `CliCore` has no runtime mutation API.
-- No process-global mutable state: each `CliCore` instance owns an isolated registry and config.
+- Mutation is builder-only: command registration and config changes happen in `CMDKitBuilder`.
+- `build()` is the freeze boundary: once built, `CMDKit` has no runtime mutation API.
+- No process-global mutable state: each `CMDKit` instance owns an isolated registry and config.
 - Runtime operations are read-only: dispatch and lookup use immutable access to core state.
 - Dispatch is deterministic: `try_run_from_args` takes explicit argv input and returns structured errors.
 
 Invariants:
 
-- A built `CliCore` never mutates its registry or config during runtime.
-- Two distinct `CliCore` instances do not share mutable state and cannot affect each other.
+- A built `CMDKit` never mutates its registry or config during runtime.
+- Two distinct `CMDKit` instances do not share mutable state and cannot affect each other.
 
 ### Command Construction
 
@@ -84,7 +84,7 @@ Both support aliases.
 ## Quick Start
 
 ```rust
-use cmdkit::{argument, command, switch, Argument, CliCore, CommandStrategy, StrategyError, Switch};
+use cmdkit::{argument, command, switch, Argument, CMDKit, CommandStrategy, StrategyError, Switch};
 
 struct CreateProject;
 
@@ -116,7 +116,7 @@ impl CommandStrategy for CreateProject {
 
 fn main() {
   
-    let core = CliCore::builder()
+    let core = CMDKit::builder()
           .register(
                 command("create", "Create a new project")
                   .handler(CreateProject)
@@ -139,9 +139,9 @@ fn main() {
 Nested trees can be built directly with the fluent builder:
 
 ```rust
-use cmdkit::{command, CliCore};
+use cmdkit::{command, CMDKit};
 fn main () {
-    let core = CliCore::builder()
+    let core = CMDKit::builder()
         .register(
             command("project", "Project commands")
                 .subcommand(
@@ -229,21 +229,21 @@ impl HelpRenderer for JsonHelp {
 
 ````rust
 
-use cmdkit::{CliCore, CoreConfig};
+use cmdkit::{CMDKit, CoreConfig};
 
 fn main() {
     let config = CoreConfig::new();
-    let core = CliCore::builder().with_config(config).build();
+    let core = CMDKit::builder().with_config(config).build();
 }
 
 ````
 
 Use `CoreConfig` to customize runtime behavior such as the help renderer.
-The registry is owned per `CliCore` instance and does not rely on lock-poison handling.
+The registry is owned per `CMDKit` instance and does not rely on lock-poison handling.
 
 ## Error Model
 
-- `CliCoreError` for dispatch/runtime-level failures:
+- `CMDKitError` for dispatch/runtime-level failures:
   - `MissingCommand`
   - `UnknownCommand`
   - `StrategyExecution`
@@ -252,17 +252,17 @@ The registry is owned per `CliCore` instance and does not rely on lock-poison ha
   - `Execution`
   - `Internal`
 
-`CliCoreError::StrategyExecution` preserves the originating `StrategyError` as source.
+`CMDKitError::StrategyExecution` preserves the originating `StrategyError` as source.
 
 ## Testing and Embedding
 
 Use `try_run_from_args` to test dispatch deterministically:
 
 ```rust
-use cmdkit::{CliCore, CliCoreError};
+use cmdkit::{CMDKit, CMDKitError};
 
-fn run_embedded(args: Vec<String>) -> Result<(), CliCoreError> {
-    let core = CliCore::new();
+fn run_embedded(args: Vec<String>) -> Result<(), CMDKitError> {
+    let core = CMDKit::new();
     core.try_run_from_args(&args)
 }
 ```

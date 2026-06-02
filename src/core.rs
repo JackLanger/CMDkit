@@ -140,7 +140,7 @@ impl Default for CoreConfig {
 
 /// Error returned by CMDkit during command routing and strategy execution.
 #[derive(Debug)]
-pub enum CliCoreError {
+pub enum CMDKitError {
     /// No command name was provided in argv.
     MissingCommand { help: String },
     /// The command name does not exist in the registry.
@@ -154,7 +154,7 @@ pub enum CliCoreError {
     },
 }
 
-impl fmt::Display for CliCoreError {
+impl fmt::Display for CMDKitError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::MissingCommand { help } => {
@@ -170,7 +170,7 @@ impl fmt::Display for CliCoreError {
     }
 }
 
-impl Error for CliCoreError {
+impl Error for CMDKitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::StrategyExecution { source, .. } => Some(source),
@@ -181,17 +181,17 @@ impl Error for CliCoreError {
 
 /// Instance-owned CLI runtime.
 ///
-/// Each [`CliCore`] owns a lazily initialized command registry and can be reused
+/// Each [`CMDKit`] owns a lazily initialized command registry and can be reused
 /// across multiple invocations without relying on process-global mutable state.
-pub struct CliCore {
+pub struct CMDKit {
     registry: CommandRegistry,
     config: CoreConfig,
 }
 
-impl CliCore {
-    /// Creates a [`CliCore`] instance from a [`CoreConfig`].
-    pub fn builder() -> CliCoreBuilder {
-        CliCoreBuilder::new()
+impl CMDKit {
+    /// Creates a [`CMDKit`] instance from a [`CoreConfig`].
+    pub fn builder() -> CMDKitBuilder {
+        CMDKitBuilder::new()
     }
 
     /// Retrieves a registered command by name.
@@ -212,7 +212,7 @@ impl CliCore {
     }
 
     /// Runs the CLI with pre-built commands and recoverable errors.
-    pub fn try_run_with_commands(commands: &[Command]) -> Result<(), CliCoreError> {
+    pub fn try_run_with_commands(commands: &[Command]) -> Result<(), CMDKitError> {
         Self::builder()
             .with_commands(commands)
             .build()
@@ -228,7 +228,7 @@ impl CliCore {
     ///
     /// This is useful for tests and embedding scenarios where argument sources
     /// are not read from process environment.
-    pub fn try_run_from_args(&self, args: &[String]) -> Result<(), CliCoreError> {
+    pub fn try_run_from_args(&self, args: &[String]) -> Result<(), CMDKitError> {
         let binary = args
             .iter()
             .next()
@@ -241,7 +241,7 @@ impl CliCore {
         }
 
         if args.len() < 2 {
-            return Err(CliCoreError::MissingCommand {
+            return Err(CMDKitError::MissingCommand {
                 help: self.render_help(&binary),
             });
         }
@@ -251,14 +251,14 @@ impl CliCore {
 
         let command = self
             .get(&command_name)
-            .ok_or_else(|| CliCoreError::UnknownCommand {
+            .ok_or_else(|| CMDKitError::UnknownCommand {
                 command: command_name.clone(),
                 help: self.render_help(&binary),
             })?;
 
         command
             .execute(command_args)
-            .map_err(|source| CliCoreError::StrategyExecution {
+            .map_err(|source| CMDKitError::StrategyExecution {
                 command: command_name,
                 source,
             })
@@ -268,18 +268,18 @@ impl CliCore {
         self.config.help_renderer.render(caller, &self.get_all())
     }
 
-    fn try_run_from_env(&self) -> Result<(), CliCoreError> {
+    fn try_run_from_env(&self) -> Result<(), CMDKitError> {
         let argv = std::env::args().collect::<Vec<String>>();
         self.try_run_from_args(&argv)
     }
 }
 
-pub struct CliCoreBuilder {
+pub struct CMDKitBuilder {
     config: CoreConfig,
     registry: CommandRegistry,
 }
 
-impl CliCoreBuilder {
+impl CMDKitBuilder {
     pub fn with_config(mut self, config: CoreConfig) -> Self {
         self.config = config;
         self
@@ -291,7 +291,7 @@ impl CliCoreBuilder {
         self
     }
 
-    fn new() -> CliCoreBuilder {
+    fn new() -> CMDKitBuilder {
         Self {
             config: Default::default(),
             registry: Default::default(),
@@ -304,8 +304,8 @@ impl CliCoreBuilder {
         self
     }
 
-    pub fn build(&self) -> CliCore {
-        CliCore {
+    pub fn build(&self) -> CMDKit {
+        CMDKit {
             registry: self.registry.clone(),
             config: self.config.clone(),
         }

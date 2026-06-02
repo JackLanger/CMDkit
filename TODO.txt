@@ -7,7 +7,7 @@ Priority legend:
 
 P1
 [x] Remove shared-runtime coupling from root-level wrappers.
-    - Status: done. global_core was removed and wrappers now instantiate fresh CliCore runtimes per call.
+    - Status: done. global_core was removed and wrappers now instantiate fresh CMDKit runtimes per call.
     - Scope: src/core.rs wrapper functions + root wrappers in src/lib.rs.
     - Acceptance met: no shared process-global runtime is used for wrapper execution.
 
@@ -63,9 +63,9 @@ P1
     - Acceptance met: examples align with current APIs (`Command`, `CommandMetaData`, `CommandStrategy`, `CoreConfig`, macro usage) and stale trait methods were removed.
 
 [x] Introduce a forward-compatible runtime configuration object.
-    - Status: done. `CoreConfig` is now the runtime-owned config object, injected at `CliCore::create(...)` time, with `CliCore::new()` preserved as the backward-compatible default constructor.
-    - Scope: src/core.rs public API (`CliCore` construction/configuration) + tests.
-    - Acceptance met: runtime configuration is no longer scattered across ad hoc setters, and changing config requires constructing a new `CliCore`.
+    - Status: done. `CoreConfig` is now the runtime-owned config object, injected at `CMDKit::create(...)` time, with `CMDKit::new()` preserved as the backward-compatible default constructor.
+    - Scope: src/core.rs public API (`CMDKit` construction/configuration) + tests.
+    - Acceptance met: runtime configuration is no longer scattered across ad hoc setters, and changing config requires constructing a new `CMDKit`.
 
 [x] Naming lacks in precision the User might not understand what Functionality is and why he needs it
     - Status: done. Renamed `Functionality`/`CommandSpec` usage to explicit `Command` + `CommandMetaData`, and updated APIs/tests accordingly.
