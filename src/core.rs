@@ -2,19 +2,6 @@ use std::{error::Error, fmt, sync::Arc};
 
 use crate::{Argument, Command, StrategyError, Switch, cli::CommandRegistry};
 
-/// Controls how [`CliCore`] responds when the registry lock is poisoned.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum LockPoisonPolicy {
-    /// Panic immediately when a poisoned lock is encountered.
-    ///
-    /// This is the default for CLI applications where lock poisoning indicates a
-    /// serious bug and silent recovery would hide inconsistent state.
-    FailFast = 0,
-    /// Recover by taking the poisoned inner value.
-    Recover = 1,
-}
-
 /// Renders user-facing help output from registered command metadata.
 pub trait HelpRenderer: Send + Sync {
     fn render(&self, caller: &str, registered_commands: &[Command]) -> String;
@@ -404,6 +391,8 @@ impl Default for CoreConfig {
 /// Error returned by CMDkit during command routing and strategy execution.
 #[derive(Debug)]
 pub enum CMDKitError {
+    /// Command registration failed due to invalid or conflicting metadata.
+    Registration { message: String },
     /// No command name was provided in argv.
     MissingCommand { help: String },
     /// The command name does not exist in the registry.
@@ -420,6 +409,9 @@ pub enum CMDKitError {
 impl fmt::Display for CMDKitError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Registration { message } => {
+                write!(f, "Command registration failed: {message}")
+            }
             Self::MissingCommand { help } => {
                 write!(f, "No command provided.\n\n{help}")
             }
@@ -468,6 +460,10 @@ impl CMDKit {
     }
 
     /// Runs the CLI with pre-built commands and prints user-facing errors.
+    ///
+    /// This is a convenience wrapper that does not surface registration failures
+    /// to the caller. Prefer [`CMDKit::try_run_with_commands`] when callers need
+    /// to handle command-registration collisions programmatically.
     pub fn run_with_commands(commands: &[Command]) {
         if let Err(e) = Self::try_run_with_commands(commands) {
             eprintln!("{e}");
@@ -475,9 +471,13 @@ impl CMDKit {
     }
 
     /// Runs the CLI with pre-built commands and recoverable errors.
+    ///
+    /// This is the preferred entrypoint for embedding and library use because it
+    /// returns structured registration errors (for example alias/name collisions)
+    /// instead of panicking.
     pub fn try_run_with_commands(commands: &[Command]) -> Result<(), CMDKitError> {
         Self::builder()
-            .with_commands(commands)
+            .try_with_commands(commands)?
             .build()
             .try_run_from_env()
     }
@@ -568,9 +568,26 @@ impl CMDKitBuilder {
     }
 
     /// Registers a command into this runtime instance.
-    pub fn register(mut self, command: Command) -> Self {
-        self.registry.register(command);
-        self
+    ///
+    /// Prefer [`CMDKitBuilder::try_register`] when command metadata can come from
+    /// external or dynamic sources.
+    ///
+    /// # Panics
+    /// Panics when registration fails (for example, alias/name collisions).
+    pub fn register(self, command: Command) -> Self {
+        self.try_register(command)
+            .expect("command registration should succeed")
+    }
+
+    /// Registers a command and returns a structured error on failure.
+    ///
+    /// This is the preferred registration API because command registration is
+    /// fallible: aliases and command names are validated for collisions.
+    pub fn try_register(mut self, command: Command) -> Result<Self, CMDKitError> {
+        self.registry
+            .register(command)
+            .map_err(|message| CMDKitError::Registration { message })?;
+        Ok(self)
     }
 
     fn new() -> CMDKitBuilder {
@@ -580,11 +597,30 @@ impl CMDKitBuilder {
         }
     }
 
-    pub fn with_commands(mut self, commands: &[Command]) -> Self {
+    /// Registers multiple commands into this runtime instance.
+    ///
+    /// Prefer [`CMDKitBuilder::try_with_commands`] in library and embedding
+    /// scenarios so registration failures can be handled by the caller.
+    ///
+    /// # Panics
+    /// Panics when any command registration fails (for example, alias/name
+    /// collisions).
+    pub fn with_commands(self, commands: &[Command]) -> Self {
+        self.try_with_commands(commands)
+            .expect("bulk command registration should succeed")
+    }
+
+    /// Registers multiple commands and returns a structured error on failure.
+    ///
+    /// This is the preferred bulk-registration API because registration is
+    /// fallible and should generally be handled by the caller.
+    pub fn try_with_commands(mut self, commands: &[Command]) -> Result<Self, CMDKitError> {
         for cmd in commands {
-            self.registry.register(cmd.clone());
+            self.registry
+                .register(cmd.clone())
+                .map_err(|message| CMDKitError::Registration { message })?;
         }
-        self
+        Ok(self)
     }
 
     pub fn with_argument_interpreter<I>(mut self, interpreter: I) -> Self

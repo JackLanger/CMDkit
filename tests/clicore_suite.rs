@@ -94,6 +94,154 @@ fn duplicate_registration_overwrites_previous_entry() {
 }
 
 #[test]
+fn top_level_command_alias_invocation_succeeds() {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+
+    let core = CMDKit::builder()
+        .register(
+            command("build", "build project")
+                .with_aliases(vec!["b", "compile"])
+                .handler(RecorderStrategy {
+                    calls: Arc::clone(&calls),
+                    error: None,
+                })
+                .build(),
+        )
+        .build();
+
+    let args = vec!["app".to_string(), "b".to_string()];
+    assert!(core.try_run_from_args(&args).is_ok());
+
+    let guard = calls.lock().expect("call log lock poisoned");
+    assert_eq!(guard.len(), 1);
+}
+
+#[test]
+fn nested_subcommand_alias_invocation_succeeds() {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let calls_for_strategy = Arc::clone(&calls);
+
+    let core = CMDKit::builder()
+        .register(
+            command("tool", "tool root")
+                .subcommand(
+                    command("run", "run command")
+                        .with_aliases(vec!["r"])
+                        .handler_fn(move |options, arguments, params| {
+                            let mut guard =
+                                calls_for_strategy.lock().expect("call log lock poisoned");
+                            guard.push((options, arguments, params));
+                            Ok(())
+                        })
+                        .build(),
+                )
+                .build(),
+        )
+        .build();
+
+    let args = vec!["app".to_string(), "tool".to_string(), "r".to_string()];
+    assert!(core.try_run_from_args(&args).is_ok());
+
+    let guard = calls.lock().expect("call log lock poisoned");
+    assert_eq!(guard.len(), 1);
+}
+
+#[test]
+fn registration_rejects_alias_conflicting_with_existing_command_name() {
+    let result = CMDKit::builder()
+        .try_register(
+            command("build", "build")
+                .handler_fn(|_, _, _| Ok(()))
+                .build(),
+        )
+        .and_then(|builder| {
+            builder.try_register(
+                command("deploy", "deploy")
+                    .with_aliases(vec!["build"])
+                    .handler_fn(|_, _, _| Ok(()))
+                    .build(),
+            )
+        });
+
+    match result {
+        Err(CMDKitError::Registration { message }) => {
+            assert!(message.contains("alias 'build' conflicts with existing command name 'build'"));
+        }
+        _ => panic!("expected registration collision error"),
+    }
+}
+
+#[test]
+fn registration_rejects_alias_conflicting_with_existing_alias() {
+    let result = CMDKit::builder()
+        .try_register(
+            command("build", "build")
+                .with_aliases(vec!["b"])
+                .handler_fn(|_, _, _| Ok(()))
+                .build(),
+        )
+        .and_then(|builder| {
+            builder.try_register(
+                command("bundle", "bundle")
+                    .with_aliases(vec!["b"])
+                    .handler_fn(|_, _, _| Ok(()))
+                    .build(),
+            )
+        });
+
+    match result {
+        Err(CMDKitError::Registration { message }) => {
+            assert!(message.contains("alias 'b' conflicts with existing alias owned by 'build'"));
+        }
+        _ => panic!("expected registration collision error"),
+    }
+}
+
+#[test]
+fn registration_rejects_command_name_conflicting_with_existing_alias() {
+    let result = CMDKit::builder()
+        .try_register(
+            command("build", "build")
+                .with_aliases(vec!["b"])
+                .handler_fn(|_, _, _| Ok(()))
+                .build(),
+        )
+        .and_then(|builder| {
+            builder.try_register(command("b", "b cmd").handler_fn(|_, _, _| Ok(())).build())
+        });
+
+    match result {
+        Err(CMDKitError::Registration { message }) => {
+            assert!(
+                message.contains("command name 'b' conflicts with existing alias owned by 'build'")
+            );
+        }
+        _ => panic!("expected registration collision error"),
+    }
+}
+
+#[test]
+fn bulk_registration_rejects_collisions() {
+    let cmd_a = command("build", "build")
+        .with_aliases(vec!["b"])
+        .handler_fn(|_, _, _| Ok(()))
+        .build();
+    let cmd_b = command("bundle", "bundle")
+        .with_aliases(vec!["b"])
+        .handler_fn(|_, _, _| Ok(()))
+        .build();
+
+    let result = CMDKit::builder().try_with_commands(&[cmd_a, cmd_b]);
+
+    match result {
+        Err(CMDKitError::Registration { message }) => {
+            assert!(message.contains("alias 'b' conflicts with existing alias owned by 'build'"));
+        }
+        _ => panic!("expected registration collision error"),
+    }
+}
+
+#[test]
 fn run_from_args_routes_trailing_arguments_to_strategy() {
     let calls = Arc::new(Mutex::new(Vec::new()));
 
