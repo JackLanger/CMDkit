@@ -453,7 +453,7 @@ fn configured_argument_interpreter_can_drive_invocation() {
             &self,
             _arg: &[String],
             _registered_commands: &[Command],
-        ) -> Result<cmdkit::InvocationArgs, CliCoreError> {
+        ) -> Result<cmdkit::InvocationArgs, CMDKitError> {
             Ok(cmdkit::InvocationArgs {
                 name: "echo".to_string(),
                 args: vec![argument("path", "path value").set_value("from-interpreter")],
@@ -472,7 +472,7 @@ fn configured_argument_interpreter_can_drive_invocation() {
     }
 
     let calls = Arc::new(Mutex::new(Vec::new()));
-    let core = CliCore::builder()
+    let core = CMDKit::builder()
         .with_argument_interpreter(FixedInterpreter)
         .register(
             command("echo", "echo arguments")
@@ -505,7 +505,7 @@ fn plain_text_interpreter_returns_missing_command_without_registered_input() {
     let result = interpreter.interpret(&[], &[]);
 
     match result {
-        Err(CliCoreError::MissingCommand { help }) => {
+        Err(CMDKitError::MissingCommand { help }) => {
             assert!(help.is_empty());
         }
         _ => panic!("expected missing command interpreter error"),
@@ -519,7 +519,7 @@ fn plain_text_interpreter_returns_unknown_command_for_unregistered_name() {
     let result = interpreter.interpret(&["missing".to_string()], &[]);
 
     match result {
-        Err(CliCoreError::UnknownCommand { command, help }) => {
+        Err(CMDKitError::UnknownCommand { command, help }) => {
             assert_eq!(command, "missing");
             assert!(help.is_empty());
         }

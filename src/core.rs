@@ -50,7 +50,7 @@ pub trait ArgumentInterpreter: Send + Sync {
         &self,
         arg: &[String],
         registered_commands: &[Command],
-    ) -> Result<InvocationArgs, CliCoreError>;
+    ) -> Result<InvocationArgs, CMDKitError>;
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -93,7 +93,7 @@ impl PlainTextArgumentInterpreter {
     fn validate_required_arguments(
         command: &Command,
         arguments: &[Argument],
-    ) -> Result<(), CliCoreError> {
+    ) -> Result<(), CMDKitError> {
         for required in command
             .metadata
             .arguments
@@ -106,7 +106,7 @@ impl PlainTextArgumentInterpreter {
                 .and_then(|argument| argument.value.as_deref());
 
             if value.is_none_or(|value| value.trim().is_empty()) {
-                return Err(CliCoreError::StrategyExecution {
+                return Err(CMDKitError::StrategyExecution {
                     command: command.metadata.name.clone(),
                     source: StrategyError::invalid_arguments(format!(
                         "missing value for required argument '--{}'",
@@ -119,8 +119,8 @@ impl PlainTextArgumentInterpreter {
         Ok(())
     }
 
-    fn invalid_arguments(command: &Command, message: impl Into<String>) -> CliCoreError {
-        CliCoreError::StrategyExecution {
+    fn invalid_arguments(command: &Command, message: impl Into<String>) -> CMDKitError {
+        CMDKitError::StrategyExecution {
             command: command.metadata.name.clone(),
             source: StrategyError::invalid_arguments(message),
         }
@@ -130,7 +130,7 @@ impl PlainTextArgumentInterpreter {
         &self,
         command: &Command,
         args: &[String],
-    ) -> Result<InvocationArgs, CliCoreError> {
+    ) -> Result<InvocationArgs, CMDKitError> {
         let mut switches = Vec::new();
         let mut arguments = Vec::new();
         let mut params = Vec::new();
@@ -240,16 +240,16 @@ impl ArgumentInterpreter for PlainTextArgumentInterpreter {
         &self,
         arg: &[String],
         registered_commands: &[Command],
-    ) -> Result<InvocationArgs, CliCoreError> {
+    ) -> Result<InvocationArgs, CMDKitError> {
         let Some(command_name) = arg.first() else {
-            return Err(CliCoreError::MissingCommand {
+            return Err(CMDKitError::MissingCommand {
                 help: String::new(),
             });
         };
 
         let command =
             Self::resolve_command(registered_commands, command_name).ok_or_else(|| {
-                CliCoreError::UnknownCommand {
+                CMDKitError::UnknownCommand {
                     command: command_name.clone(),
                     help: String::new(),
                 }
@@ -534,12 +534,12 @@ impl CMDKit {
         self.try_run_from_args(&argv)
     }
 
-    fn attach_help(&self, error: CliCoreError, caller: &str) -> CliCoreError {
+    fn attach_help(&self, error: CMDKitError, caller: &str) -> CMDKitError {
         match error {
-            CliCoreError::MissingCommand { .. } => CliCoreError::MissingCommand {
+            CMDKitError::MissingCommand { .. } => CMDKitError::MissingCommand {
                 help: self.render_help(caller),
             },
-            CliCoreError::UnknownCommand { command, .. } => CliCoreError::UnknownCommand {
+            CMDKitError::UnknownCommand { command, .. } => CMDKitError::UnknownCommand {
                 command,
                 help: self.render_help(caller),
             },
