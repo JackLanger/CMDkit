@@ -24,3 +24,25 @@ pub fn run_with_commands(commands: &[Command]) {
 pub fn try_run_with_commands(commands: &[Command]) -> Result<(), CMDKitError> {
     core::CMDKit::try_run_with_commands(commands)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{CMDKitError, run_with_commands, try_run_with_commands};
+
+    #[test]
+    fn wrapper_try_run_with_commands_propagates_missing_command_error() {
+        let result = try_run_with_commands(&[]);
+
+        match result {
+            Err(CMDKitError::MissingCommand { help }) => {
+                assert!(help.contains("Usage:"));
+            }
+            _ => panic!("expected missing command error"),
+        }
+    }
+
+    #[test]
+    fn wrapper_run_with_commands_handles_errors_without_panicking() {
+        run_with_commands(&[]);
+    }
+}

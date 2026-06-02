@@ -204,3 +204,6 @@ impl SubcommandCatalog for FallbackSubcommandStrategy {
         subcommands.into_values().collect()
     }
 }
+
+#[cfg(test)]
+mod tests;

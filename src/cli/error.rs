@@ -63,3 +63,6 @@ impl fmt::Display for StrategyError {
 }
 
 impl Error for StrategyError {}
+
+#[cfg(test)]
+mod tests;
