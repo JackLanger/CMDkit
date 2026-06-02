@@ -499,6 +499,60 @@ fn configured_argument_interpreter_can_drive_invocation() {
 }
 
 #[test]
+fn configured_argument_interpreter_rejects_unresolvable_subcommand_path() {
+    struct InvalidSubcommandInterpreter;
+
+    impl ArgumentInterpreter for InvalidSubcommandInterpreter {
+        fn interpret(
+            &self,
+            _arg: &[String],
+            _registered_commands: &[Command],
+        ) -> Result<cmdkit::InvocationArgs, CMDKitError> {
+            Ok(cmdkit::InvocationArgs {
+                name: "echo".to_string(),
+                args: Vec::new(),
+                switches: Vec::new(),
+                params: Vec::new(),
+                order: Vec::new(),
+                subcommand: Some(Box::new(cmdkit::InvocationArgs {
+                    name: "ghost".to_string(),
+                    args: Vec::new(),
+                    switches: Vec::new(),
+                    params: Vec::new(),
+                    order: Vec::new(),
+                    subcommand: None,
+                })),
+            })
+        }
+    }
+
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let core = CMDKit::builder()
+        .with_argument_interpreter(InvalidSubcommandInterpreter)
+        .register(
+            command("echo", "echo arguments")
+                .handler(RecorderStrategy {
+                    calls: Arc::clone(&calls),
+                    error: None,
+                })
+                .build(),
+        )
+        .build();
+
+    let result = core.try_run_from_args(&["app".to_string()]);
+    match result {
+        Err(CMDKitError::StrategyExecution { source, .. }) => {
+            assert_eq!(source.kind, StrategyErrorKind::InvalidArguments);
+            assert!(source.message.contains("unknown subcommand 'ghost'"));
+        }
+        _ => panic!("expected invalid subcommand path error"),
+    }
+
+    let guard = calls.lock().expect("call log lock poisoned");
+    assert!(guard.is_empty());
+}
+
+#[test]
 fn plain_text_interpreter_returns_missing_command_without_registered_input() {
     let interpreter = PlainTextArgumentInterpreter;
 

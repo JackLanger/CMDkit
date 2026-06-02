@@ -179,17 +179,22 @@ impl Command {
     }
 
     pub(crate) fn execute(&self, invocation: &InvocationArgs) -> Result<(), StrategyError> {
-        if let Some(subcommand) = &invocation.subcommand
-            && let Some(command) = self.resolve_subcommand(&subcommand.name)
-        {
-            return command.execute(subcommand);
+        match &invocation.subcommand {
+            Some(subcommand) => self
+                .resolve_subcommand(&subcommand.name)
+                .ok_or_else(|| {
+                    StrategyError::invalid_arguments(format!(
+                        "unknown subcommand '{}'",
+                        subcommand.name
+                    ))
+                })?
+                .execute(subcommand),
+            None => self.strategy.execute(
+                invocation.switches.clone(),
+                invocation.args.clone(),
+                invocation.params.clone(),
+            ),
         }
-
-        self.strategy.execute(
-            invocation.switches.clone(),
-            invocation.args.clone(),
-            invocation.params.clone(),
-        )
     }
 
     /// Returns the optional subcommand catalog exposed by the underlying strategy.
