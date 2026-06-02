@@ -4,7 +4,7 @@ use super::Command;
 
 /// Internal registry storage for command-to-command mappings.
 #[derive(Default, Clone)]
-pub(crate) struct CommandRegistry {
+pub struct CommandRegistry {
     commands: BTreeMap<String, Command>,
     aliases: BTreeMap<String, String>,
 }

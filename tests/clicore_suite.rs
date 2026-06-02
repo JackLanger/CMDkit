@@ -1,8 +1,8 @@
 use std::sync::{Arc, Mutex};
 
 use cmdkit::{
-    Argument, ArgumentInterpreter, CMDKit, CMDKitError, Command, CommandStrategy,
-    InvocationElement, PlainTextArgumentInterpreter, StrategyError, StrategyErrorKind,
+    Argument, CMDKit, CMDKitError, Command, CommandStrategy, InvocationElement,
+    InvocationInterpreter, PlainTextArgumentInterpreter, StrategyError, StrategyErrorKind,
     SubcommandRouter, Switch, argument, command, switch,
 };
 type CallLog = Arc<Mutex<Vec<(Vec<Switch>, Vec<Argument>, Vec<String>)>>>;
@@ -596,7 +596,7 @@ fn independent_instances_do_not_share_registry_entries() {
 fn configured_argument_interpreter_can_drive_invocation() {
     struct FixedInterpreter;
 
-    impl ArgumentInterpreter for FixedInterpreter {
+    impl InvocationInterpreter for FixedInterpreter {
         fn interpret(
             &self,
             _arg: &[String],
@@ -650,7 +650,7 @@ fn configured_argument_interpreter_can_drive_invocation() {
 fn configured_argument_interpreter_rejects_unresolvable_subcommand_path() {
     struct InvalidSubcommandInterpreter;
 
-    impl ArgumentInterpreter for InvalidSubcommandInterpreter {
+    impl InvocationInterpreter for InvalidSubcommandInterpreter {
         fn interpret(
             &self,
             _arg: &[String],

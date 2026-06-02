@@ -1,0 +1,12 @@
+[package]
+name = "cmdkit-master"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cmdkit = { path = ".." }
+futures-channel = "0.3"
+crossbeam-channel = "0.5"
+
+[dev-dependencies]
+futures-executor = "0.3"

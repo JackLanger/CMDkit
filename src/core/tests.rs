@@ -1,7 +1,5 @@
 use std::sync::{Arc, Mutex};
 
-use futures_executor::block_on;
-
 use crate::{
     CMDKit, CMDKitError, Command, CoreConfig, InvocationArgs, StrategyError, argument, command,
 };
@@ -18,7 +16,7 @@ struct FixedInterpreter {
     command_name: String,
 }
 
-impl crate::core::ArgumentInterpreter for FixedInterpreter {
+impl crate::core::InvocationInterpreter for FixedInterpreter {
     fn interpret(
         &self,
         _arg: &[String],
@@ -153,89 +151,4 @@ fn builder_with_config_uses_custom_renderer_for_missing_command_help() {
         }
         _ => panic!("expected missing command error"),
     }
-}
-
-#[test]
-fn cmdkit_master_executes_command_and_returns_success_handle() {
-    let calls: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-    let calls_for_handler = Arc::clone(&calls);
-
-    let cmd = command("echo", "echo command").handler_fn(move |_sw, _args, params| {
-        calls_for_handler
-            .lock()
-            .expect("calls lock should not be poisoned")
-            .push(params.join(" "));
-        Ok(())
-    });
-
-    let builder = CMDKit::builder().with_commands(&[cmd.build()]);
-    let master = builder.as_master_executor(CoreConfig::new(), 1);
-
-    let handle = master
-        .try_run_from_args(&["app".to_string(), "echo".to_string(), "hello".to_string()])
-        .expect("submission should succeed");
-
-    let result = block_on(handle).expect("completion channel should stay open");
-    assert!(result.is_ok());
-
-    let guard = calls.lock().expect("calls lock should not be poisoned");
-    assert_eq!(guard.as_slice(), ["hello"]);
-}
-
-#[test]
-fn cmdkit_master_propagates_execution_error_through_handle() {
-    let builder = CMDKit::builder();
-    let master = builder.as_master_executor(CoreConfig::new(), 1);
-
-    let handle = master
-        .try_run_from_args(&["app".to_string(), "missing".to_string()])
-        .expect("submission should succeed");
-
-    let result = block_on(handle).expect("completion channel should stay open");
-    match result {
-        Err(CMDKitError::UnknownCommand { command, .. }) => {
-            assert_eq!(command, "missing");
-        }
-        _ => panic!("expected unknown command error"),
-    }
-}
-
-#[test]
-fn cmdkit_master_help_path_returns_resolved_success_handle() {
-    let builder = CMDKit::builder();
-    let master = builder.as_master_executor(CoreConfig::new(), 1);
-
-    let handle = master
-        .try_run_from_args(&["app".to_string(), "help".to_string()])
-        .expect("help submission should succeed");
-
-    let result = block_on(handle).expect("completion channel should stay open");
-    assert!(result.is_ok());
-}
-
-#[test]
-fn cmdkit_master_normalizes_zero_worker_count() {
-    let calls: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-    let calls_for_handler = Arc::clone(&calls);
-
-    let cmd = command("ping", "ping command").handler_fn(move |_sw, _args, _params| {
-        calls_for_handler
-            .lock()
-            .expect("calls lock should not be poisoned")
-            .push("ran".to_string());
-        Ok(())
-    });
-
-    let builder = CMDKit::builder().with_commands(&[cmd.build()]);
-    let master = builder.as_master_executor(CoreConfig::new(), 0);
-
-    let handle = master
-        .try_run_from_args(&["app".to_string(), "ping".to_string()])
-        .expect("submission should succeed");
-
-    let result = block_on(handle).expect("completion channel should stay open");
-    assert!(result.is_ok());
-
-    let guard = calls.lock().expect("calls lock should not be poisoned");
-    assert_eq!(guard.len(), 1);
 }

@@ -1,6 +1,4 @@
 /target
-/cmdkit-macros/target
-/cmdkit-macros/Cargo.lock
 .*code-workspace
 *.log
 *.tmp
@@ -10,3 +8,6 @@
 *.DS_Store
 .idea
 .vscode
+
+**/target
+**/Cargo.lock

@@ -10,9 +10,8 @@ pub use cli::{
     command, switch,
 };
 pub use core::{
-    ArgumentInterpreter, CMDKit, CMDKitBuilder, CMDKitError, CMDKitMaster, CoreConfig,
-    ExecutionHandle, HelpRenderer, InvocationArgs, InvocationElement, PlainTextArgumentInterpreter,
-    PlainTextHelpRenderer,
+    CMDKit, CMDKitBuilder, CMDKitError, CoreConfig, HelpRenderer, InvocationArgs,
+    InvocationElement, InvocationInterpreter, PlainTextArgumentInterpreter, PlainTextHelpRenderer,
 };
 
 /// Runs a fresh default [`CMDKit`] instance with pre-built commands.
