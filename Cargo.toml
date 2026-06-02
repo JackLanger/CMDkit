@@ -22,7 +22,3 @@ path = "src/bin/wrapper_probe.rs"
 
 
 [dependencies]
-futures-channel = "0.3"
-
-[dev-dependencies]
-futures-executor = "0.3"
