@@ -1,3 +1,12 @@
 /target
 /cmdkit-macros/target
 /cmdkit-macros/Cargo.lock
+.*code-workspace
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
+*.DS_Store
+.idea
+.vscode

@@ -1,8 +1,4 @@
-use std::{
-    error::Error,
-    fmt,
-    sync::{Arc, OnceLock, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard},
-};
+use std::{error::Error, fmt, sync::Arc};
 
 use crate::{Argument, Command, StrategyError, Switch, cli::CommandRegistry};
 
@@ -68,9 +64,11 @@ impl PlainTextArgumentInterpreter {
     }
 
     fn find_declared_switch<'a>(command: &'a Command, flag: &str) -> Option<&'a Switch> {
-        command.metadata.options.iter().find(|option| {
-            option.name == flag || option.aliases.iter().any(|alias| alias == flag)
-        })
+        command
+            .metadata
+            .options
+            .iter()
+            .find(|option| option.name == flag || option.aliases.iter().any(|alias| alias == flag))
     }
 
     fn resolve_command(commands: &[Command], token: &str) -> Option<Command> {
@@ -142,7 +140,9 @@ impl PlainTextArgumentInterpreter {
         while index < args.len() {
             let token = &args[index];
 
-            if params.is_empty() && let Some(subcommand) = command.resolve_subcommand(token) {
+            if params.is_empty()
+                && let Some(subcommand) = command.resolve_subcommand(token)
+            {
                 Self::validate_required_arguments(command, &arguments)?;
 
                 return Ok(InvocationArgs {
@@ -151,7 +151,9 @@ impl PlainTextArgumentInterpreter {
                     switches,
                     params,
                     order,
-                    subcommand: Some(Box::new(self.parse_command(&subcommand, &args[index + 1..])?)),
+                    subcommand: Some(Box::new(
+                        self.parse_command(&subcommand, &args[index + 1..])?,
+                    )),
                 });
             }
 
@@ -245,12 +247,13 @@ impl ArgumentInterpreter for PlainTextArgumentInterpreter {
             });
         };
 
-        let command = Self::resolve_command(registered_commands, command_name).ok_or_else(|| {
-            CliCoreError::UnknownCommand {
-                command: command_name.clone(),
-                help: String::new(),
-            }
-        })?;
+        let command =
+            Self::resolve_command(registered_commands, command_name).ok_or_else(|| {
+                CliCoreError::UnknownCommand {
+                    command: command_name.clone(),
+                    help: String::new(),
+                }
+            })?;
 
         self.parse_command(&command, &arg[1..])
     }
@@ -358,8 +361,8 @@ impl HelpRenderer for PlainTextHelpRenderer {
     }
 }
 
+#[derive(Clone)]
 pub struct CoreConfig {
-    pub lock_poison_policy: LockPoisonPolicy,
     pub help_renderer: Arc<dyn HelpRenderer>,
     pub argument_interpreter: Arc<dyn ArgumentInterpreter>,
 }
@@ -368,16 +371,9 @@ impl CoreConfig {
     // creates a default config object
     pub fn new() -> Self {
         Self {
-            lock_poison_policy: LockPoisonPolicy::FailFast,
             help_renderer: Arc::new(PlainTextHelpRenderer),
             argument_interpreter: Arc::new(PlainTextArgumentInterpreter),
         }
-    }
-
-    /// Sets the lock-poison policy in a builder-friendly way.
-    pub fn with_lock_poison_policy(mut self, policy: LockPoisonPolicy) -> Self {
-        self.lock_poison_policy = policy;
-        self
     }
 
     /// Replaces the help renderer in a builder-friendly way.
@@ -451,70 +447,39 @@ impl Error for CliCoreError {
 /// Each [`CliCore`] owns a lazily initialized command registry and can be reused
 /// across multiple invocations without relying on process-global mutable state.
 pub struct CliCore {
-    registry: OnceLock<Arc<RwLock<CommandRegistry>>>,
+    registry: CommandRegistry,
     config: CoreConfig,
-}
-
-impl Default for CliCore {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl CliCore {
     /// Creates a [`CliCore`] instance from a [`CoreConfig`].
-    pub fn create(config: CoreConfig) -> Self {
-        Self {
-            registry: OnceLock::new(),
-            config,
-        }
-    }
-
-    /// Creates a new CLI runtime with lazy registry initialization.
-    pub fn new() -> Self {
-        Self {
-            registry: OnceLock::new(),
-            config: CoreConfig::new(),
-        }
-    }
-
-    /// Returns the current lock-poison handling policy for this runtime.
-    pub fn lock_poison_policy(&self) -> LockPoisonPolicy {
-        self.config.lock_poison_policy
-    }
-
-    /// Registers a command into this runtime instance.
-    pub fn register(&self, command: Command) -> &Self {
-        let mut guard = self.write_registry();
-        guard.register(command);
-        self
+    pub fn builder() -> CliCoreBuilder {
+        CliCoreBuilder::new()
     }
 
     /// Retrieves a registered command by name.
     pub fn get(&self, name: &str) -> Option<Command> {
-        let guard = self.read_registry();
-        guard.get(name)
+        self.registry.get(name)
     }
 
     /// Returns all currently registered commands.
     pub fn get_all(&self) -> Vec<Command> {
-        let guard = self.read_registry();
-        guard.get_all()
+        self.registry.get_all()
     }
 
     /// Runs the CLI with pre-built commands and prints user-facing errors.
-    pub fn run_with_commands(&self, commands: &[Command]) {
-        if let Err(e) = self.try_run_with_commands(commands) {
+    pub fn run_with_commands(commands: &[Command]) {
+        if let Err(e) = Self::try_run_with_commands(commands) {
             eprintln!("{e}");
         }
     }
 
     /// Runs the CLI with pre-built commands and recoverable errors.
-    pub fn try_run_with_commands(&self, commands: &[Command]) -> Result<(), CliCoreError> {
-        for command in commands {
-            self.register(command.clone());
-        }
-        self.try_run_from_env()
+    pub fn try_run_with_commands(commands: &[Command]) -> Result<(), CliCoreError> {
+        Self::builder()
+            .with_commands(commands)
+            .build()
+            .try_run_from_env()
     }
 
     /// Runs command dispatch against an explicit argv slice.
@@ -584,48 +549,49 @@ impl CliCore {
 
     fn resolve_registered_command(&self, commands: &[Command], name: &str) -> Option<Command> {
         commands.iter().find_map(|command| {
-            ((command.metadata.name == name) || command.metadata.aliases.iter().any(|alias| alias == name))
-                .then(|| command.clone())
+            ((command.metadata.name == name)
+                || command.metadata.aliases.iter().any(|alias| alias == name))
+            .then(|| command.clone())
         })
     }
-
-    fn registry(&self) -> &Arc<RwLock<CommandRegistry>> {
-        self.registry
-            .get_or_init(|| Arc::new(RwLock::new(CommandRegistry::new())))
-    }
-
-    fn read_registry(&self) -> RwLockReadGuard<'_, CommandRegistry> {
-        match self.registry().read() {
-            Ok(guard) => guard,
-            Err(poisoned) => self.handle_poison(poisoned, "read"),
-        }
-    }
-
-    fn write_registry(&self) -> RwLockWriteGuard<'_, CommandRegistry> {
-        match self.registry().write() {
-            Ok(guard) => guard,
-            Err(poisoned) => self.handle_poison(poisoned, "write"),
-        }
-    }
-
-    fn handle_poison<T>(&self, poisoned: PoisonError<T>, operation: &str) -> T {
-        match self.lock_poison_policy() {
-            LockPoisonPolicy::FailFast => {
-                panic!("CMDkit registry lock poisoned during {operation} operation")
-            }
-            LockPoisonPolicy::Recover => poisoned.into_inner(),
-        }
-    }
 }
 
-/// Runs a fresh default [`CliCore`] instance with pre-built commands.
-pub fn run_with_commands(commands: &[Command]) {
-    CliCore::new().run_with_commands(commands)
+pub struct CliCoreBuilder {
+    config: CoreConfig,
+    registry: CommandRegistry,
 }
 
-/// Runs a fresh default [`CliCore`] instance with pre-built commands.
-pub fn try_run_with_commands(commands: &[Command]) -> Result<(), CliCoreError> {
-    CliCore::new().try_run_with_commands(commands)
+impl CliCoreBuilder {
+    pub fn with_config(mut self, config: CoreConfig) -> Self {
+        self.config = config;
+        self
+    }
+
+    /// Registers a command into this runtime instance.
+    pub fn register(mut self, command: Command) -> Self {
+        self.registry.register(command);
+        self
+    }
+
+    fn new() -> CliCoreBuilder {
+        Self {
+            config: Default::default(),
+            registry: Default::default(),
+        }
+    }
+    pub fn with_commands(mut self, commands: &[Command]) -> Self {
+        for cmd in commands {
+            self.registry.register(cmd.clone());
+        }
+        self
+    }
+
+    pub fn build(&self) -> CliCore {
+        CliCore {
+            registry: self.registry.clone(),
+            config: self.config.clone(),
+        }
+    }
 }
 
 #[cfg(test)]

@@ -15,7 +15,7 @@ impl CommandStrategy for ProbeStrategy {
 
 fn main() {
     println!("--FIRST--");
-    core::run_with_commands(&[Command::new("alpha", "alpha command", ProbeStrategy)]);
+    core::CliCore::run_with_commands(&[Command::new("alpha", "alpha command", ProbeStrategy)]);
     println!("--SECOND--");
-    core::run_with_commands(&[Command::new("beta", "beta command", ProbeStrategy)]);
+    core::CliCore::run_with_commands(&[Command::new("beta", "beta command", ProbeStrategy)]);
 }

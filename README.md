@@ -26,19 +26,35 @@ cargo add cmdkit
     - `arguments: Vec<Argument>` for value-bearing inputs
     - `params: Vec<String>` for remaining positional parameters
 - Customize help output via `HelpRenderer`.
-- Configure lock-poison behavior with `CoreConfig`.
+- Configure the runtime help renderer via `CoreConfig`.
 
 ## Core API
 
 ### Runtime
 
-- `CliCore::new()` creates a runtime with default config.
+- `CliCore::new()` creates a runtime with default configuration.
+- `CliCore::builder()` starts a fluent builder for registering commands before building the runtime.
 - `CliCore::create(config)` uses custom `CoreConfig`.
-- `register`, `get`, and `get_all` manage command registration.
+- `register`, `get`, and `get_all` manage command registration on a runtime instance.
 - `try_run_from_args(&[String])` is ideal for tests and embedding.
 - `run_with_commands` and `try_run_with_commands` are convenience wrappers.
 
 Each `CliCore` instance owns its own registry. Runtime state is not shared across instances.
+
+### Architecture Contract
+
+The runtime model follows a strict build-then-dispatch lifecycle:
+
+- Mutation is builder-only: command registration and config changes happen in `CliCoreBuilder`.
+- `build()` is the freeze boundary: once built, `CliCore` has no runtime mutation API.
+- No process-global mutable state: each `CliCore` instance owns an isolated registry and config.
+- Runtime operations are read-only: dispatch and lookup use immutable access to core state.
+- Dispatch is deterministic: `try_run_from_args` takes explicit argv input and returns structured errors.
+
+Invariants:
+
+- A built `CliCore` never mutates its registry or config during runtime.
+- Two distinct `CliCore` instances do not share mutable state and cannot affect each other.
 
 ### Command Construction
 
@@ -99,33 +115,22 @@ impl CommandStrategy for CreateProject {
 }
 
 fn main() {
-    let core = CliCore::new();
-
-    core.register(
-        command("create", "Create a new project")
-            .handler(CreateProject)
-            .with_aliases(vec!["new", "init"])
-            .with_options(vec![
-                switch("dry-run", "Preview only").with_aliases(vec!["check".to_string()]),
-            ])
-            .with_arguments(vec![
-                argument("name", "Project name").with_aliases(vec!["n"]),
-                argument("language", "Target language").with_aliases(vec!["l"]),
-            ])
-            .build(),
-    );
-
-    let args = vec![
-        "projectmanager".to_string(),
-        "create".to_string(),
-        "--name".to_string(),
-        "demo".to_string(),
-        "--language".to_string(),
-        "rust".to_string(),
-        "--dry-run".to_string(),
-    ];
-
-    core.try_run_from_args(&args).expect("CLI execution failed");
+  
+    let core = CliCore::builder()
+          .register(
+                command("create", "Create a new project")
+                  .handler(CreateProject)
+                  .with_aliases(vec!["new", "init"])
+                  .with_options(vec![
+                      switch("dry-run", "Preview only").with_aliases(vec!["check".to_string()]),
+                  ])
+                  .with_arguments(vec![
+                      argument("name", "Project name").with_aliases(vec!["n"]),
+                      argument("language", "Target language").with_aliases(vec!["l"]),
+                  ])
+                  .build())
+            .try_run_from_env()
+            .expect("CLI execution failed");
 }
 ```
 
@@ -135,25 +140,26 @@ Nested trees can be built directly with the fluent builder:
 
 ```rust
 use cmdkit::{command, CliCore};
+fn main () {
+    let core = CliCore::builder()
+        .register(
+            command("project", "Project commands")
+                .subcommand(
+                    command("create", "Create a project").handler_fn(|options, arguments, _| {
+                        println!("options={options:?} arguments={arguments:?}");
+                        Ok(())
+                    }),
+                )
+                .subcommand(
+                    command("delete", "Delete a project").handler_fn(|_, arguments, params| {
+                        println!("arguments={arguments:?} params={params:?}");
+                        Ok(())
+                      }),
+                    )
+                    .build(),
+          ).build();
+}
 
-let core = CliCore::new();
-
-core.register(
-    command("project", "Project commands")
-        .subcommand(
-            command("create", "Create a project").handler_fn(|options, arguments, _| {
-                println!("options={options:?} arguments={arguments:?}");
-                Ok(())
-            }),
-        )
-        .subcommand(
-            command("delete", "Delete a project").handler_fn(|_, arguments, params| {
-                println!("arguments={arguments:?} params={params:?}");
-                Ok(())
-            }),
-        )
-        .build(),
-);
 ```
 
 Routing commands forward execution to leaf commands. The selected leaf strategy receives parsed input.
@@ -221,19 +227,19 @@ impl HelpRenderer for JsonHelp {
 
 ## Runtime Configuration
 
-```rust
-use cmdkit::{CliCore, CoreConfig, LockPoisonPolicy};
+````rust
 
-let config = CoreConfig::new()
-    .with_lock_poison_policy(LockPoisonPolicy::Recover);
+use cmdkit::{CliCore, CoreConfig};
 
-let core = CliCore::create(config);
-```
+fn main() {
+    let config = CoreConfig::new();
+    let core = CliCore::builder().with_config(config).build();
+}
 
-`LockPoisonPolicy` values:
+````
 
-- `FailFast` (default): panic when registry lock is poisoned
-- `Recover`: recover poisoned lock state and continue
+Use `CoreConfig` to customize runtime behavior such as the help renderer.
+The registry is owned per `CliCore` instance and does not rely on lock-poison handling.
 
 ## Error Model
 
