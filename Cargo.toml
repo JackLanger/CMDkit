@@ -2,12 +2,18 @@
 name = "cmdkit"
 version = "0.3.0"
 edition = "2024"
-description = "Core library for CLI tools, providing common functionality and utilities for building command-line applications."
+description = "Deterministic command execution runtime for structured command graphs with configurable execution topology."
 license = "GPL-3.0-or-later"
 repository = "https://github.com/JackLanger/CMDkit"
 documentation = "https://docs.rs/cmdkit"
-keywords = ["cli", "command", "framework", "parser"]
-categories = ["command-line-interface", "command-line-utilities"]
+keywords = [
+    "runtime",
+    "dispatch",
+    "string-based",
+    "deterministic",
+    "orchestration",
+]
+categories = ["asynchronous", "concurrency", "development-tools"]
 readme = "README.md"
 
 [[bin]]
@@ -16,3 +22,7 @@ path = "src/bin/wrapper_probe.rs"
 
 
 [dependencies]
+futures-channel = "0.3"
+
+[dev-dependencies]
+futures-executor = "0.3"

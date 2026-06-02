@@ -1,6 +1,6 @@
 # CMDkit
 
-CMDkit is a small, implementation-first Rust framework for building command-line tools.
+CMDkit is a deterministic command-execution runtime that separates command definition from invocation parsing and execution orchestration, while enabling full runtime configuration during setup.
 
 It is designed around three ideas:
 
@@ -262,7 +262,7 @@ Use `try_run_from_args` to test dispatch deterministically:
 use cmdkit::{CMDKit, CMDKitError};
 
 fn run_embedded(args: Vec<String>) -> Result<(), CMDKitError> {
-    let core = CMDKit::new();
+    let core = CMDKit::builder().build();
     core.try_run_from_args(&args)
 }
 ```
