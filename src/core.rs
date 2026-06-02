@@ -579,10 +579,19 @@ impl CliCoreBuilder {
             registry: Default::default(),
         }
     }
+
     pub fn with_commands(mut self, commands: &[Command]) -> Self {
         for cmd in commands {
             self.registry.register(cmd.clone());
         }
+        self
+    }
+
+    pub fn with_argument_interpreter<I>(mut self, interpreter: I) -> Self
+    where
+        I: ArgumentInterpreter + 'static,
+    {
+        self.config.argument_interpreter = Arc::new(interpreter);
         self
     }
 
