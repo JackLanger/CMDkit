@@ -1,7 +1,8 @@
 use std::sync::{Arc, Mutex};
 
 use cmdkit::{
-    Argument, CMDKit, CMDKitError, Command, CommandStrategy, StrategyError, StrategyErrorKind,
+    Argument, ArgumentInterpreter, CMDKit, CMDKitError, Command, CommandStrategy,
+    InvocationElement, PlainTextArgumentInterpreter, StrategyError, StrategyErrorKind,
     SubcommandRouter, Switch, argument, command, switch,
 };
 type CallLog = Arc<Mutex<Vec<(Vec<Switch>, Vec<Argument>, Vec<String>)>>>;
@@ -286,7 +287,7 @@ fn strategy_errors_bubble_with_kind_and_message() {
 }
 
 #[test]
-fn parser_rejects_unknown_flags() {
+fn interpreter_rejects_unknown_flags() {
     let calls = Arc::new(Mutex::new(Vec::new()));
 
     let core = CMDKit::builder()
@@ -320,7 +321,7 @@ fn parser_rejects_unknown_flags() {
 }
 
 #[test]
-fn parser_enforces_required_argument_presence_and_non_empty_values() {
+fn interpreter_enforces_required_argument_presence_and_non_empty_values() {
     let calls = Arc::new(Mutex::new(Vec::new()));
 
     let core = CMDKit::builder()
@@ -388,7 +389,7 @@ fn parser_enforces_required_argument_presence_and_non_empty_values() {
 }
 
 #[test]
-fn parser_accepts_argument_aliases_and_uses_last_value_wins() {
+fn interpreter_accepts_argument_aliases_and_uses_last_value_wins() {
     let calls = Arc::new(Mutex::new(Vec::new()));
     let calls_for_strategy = Arc::clone(&calls);
 
@@ -441,6 +442,242 @@ fn independent_instances_do_not_share_registry_entries() {
 
     assert!(core_a.get("isolated").is_some());
     assert!(core_b.get("isolated").is_none());
+}
+
+#[test]
+fn configured_argument_interpreter_can_drive_invocation() {
+    struct FixedInterpreter;
+
+    impl ArgumentInterpreter for FixedInterpreter {
+        fn interpret(
+            &self,
+            _arg: &[String],
+            _registered_commands: &[Command],
+        ) -> Result<cmdkit::InvocationArgs, CMDKitError> {
+            Ok(cmdkit::InvocationArgs {
+                name: "echo".to_string(),
+                args: vec![argument("path", "path value").set_value("from-interpreter")],
+                switches: vec![switch("loud", "loud switch")],
+                params: vec!["tail".to_string()],
+                order: vec![
+                    InvocationElement::Switch(switch("loud", "loud switch")),
+                    InvocationElement::Argument(
+                        argument("path", "path value").set_value("from-interpreter"),
+                    ),
+                    InvocationElement::Param("tail".to_string()),
+                ],
+                subcommand: None,
+            })
+        }
+    }
+
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let core = CMDKit::builder()
+        .with_argument_interpreter(FixedInterpreter)
+        .register(
+            command("echo", "echo arguments")
+                .handler(RecorderStrategy {
+                    calls: Arc::clone(&calls),
+                    error: None,
+                })
+                .with_options(vec![switch("loud", "loud switch")])
+                .with_arguments(vec![argument("path", "path value")])
+                .build(),
+        )
+        .build();
+
+    assert!(core.try_run_from_args(&["app".to_string()]).is_ok());
+
+    let guard = calls.lock().expect("call log lock poisoned");
+    assert_eq!(guard.len(), 1);
+    assert!(has_switch(&guard[0].0, "loud"));
+    assert_eq!(
+        argument_value(&guard[0].1, "path"),
+        Some("from-interpreter")
+    );
+    assert_eq!(guard[0].2, vec!["tail".to_string()]);
+}
+
+#[test]
+fn plain_text_interpreter_returns_missing_command_without_registered_input() {
+    let interpreter = PlainTextArgumentInterpreter;
+
+    let result = interpreter.interpret(&[], &[]);
+
+    match result {
+        Err(CMDKitError::MissingCommand { help }) => {
+            assert!(help.is_empty());
+        }
+        _ => panic!("expected missing command interpreter error"),
+    }
+}
+
+#[test]
+fn plain_text_interpreter_returns_unknown_command_for_unregistered_name() {
+    let interpreter = PlainTextArgumentInterpreter;
+
+    let result = interpreter.interpret(&["missing".to_string()], &[]);
+
+    match result {
+        Err(CMDKitError::UnknownCommand { command, help }) => {
+            assert_eq!(command, "missing");
+            assert!(help.is_empty());
+        }
+        _ => panic!("expected unknown command interpreter error"),
+    }
+}
+
+#[test]
+fn plain_text_interpreter_resolves_aliases_to_canonical_typed_metadata() {
+    let interpreter = PlainTextArgumentInterpreter;
+    let root = command("tool", "tool root")
+        .with_aliases(vec!["t"])
+        .with_options(vec![
+            switch("verbose", "verbose output").with_aliases(vec!["v".to_string()]),
+        ])
+        .with_arguments(vec![argument("path", "path value").with_aliases(vec!["p"])])
+        .handler_fn(|_, _, _| Ok(()))
+        .build();
+
+    let invocation = interpreter
+        .interpret(
+            &[
+                "t".to_string(),
+                "--v".to_string(),
+                "--p".to_string(),
+                "src/lib.rs".to_string(),
+            ],
+            &[root],
+        )
+        .expect("interpreter should resolve aliases using declared metadata");
+
+    assert_eq!(invocation.name, "tool");
+    assert_eq!(invocation.switches.len(), 1);
+    assert_eq!(invocation.switches[0].name, "verbose");
+    assert_eq!(invocation.switches[0].description, "verbose output");
+    assert_eq!(invocation.switches[0].aliases, vec!["v".to_string()]);
+
+    assert_eq!(invocation.args.len(), 1);
+    assert_eq!(invocation.args[0].name, "path");
+    assert_eq!(invocation.args[0].description, "path value");
+    assert_eq!(invocation.args[0].aliases, vec!["p".to_string()]);
+    assert_eq!(invocation.args[0].value.as_deref(), Some("src/lib.rs"));
+}
+
+#[test]
+fn plain_text_interpreter_moves_repeated_argument_to_latest_position() {
+    let interpreter = PlainTextArgumentInterpreter;
+    let root = command("tool", "tool root")
+        .with_options(vec![switch("verbose", "verbose output")])
+        .with_arguments(vec![
+            argument("path", "path value"),
+            argument("mode", "mode value"),
+        ])
+        .handler_fn(|_, _, _| Ok(()))
+        .build();
+
+    let invocation = interpreter
+        .interpret(
+            &[
+                "tool".to_string(),
+                "--path".to_string(),
+                "first".to_string(),
+                "--mode".to_string(),
+                "fast".to_string(),
+                "--path".to_string(),
+                "second".to_string(),
+                "--verbose".to_string(),
+            ],
+            &[root],
+        )
+        .expect("interpreter should keep the latest argument occurrence");
+
+    assert_eq!(invocation.args.len(), 2);
+    assert_eq!(invocation.args[0].name, "mode");
+    assert_eq!(invocation.args[0].value.as_deref(), Some("fast"));
+    assert_eq!(invocation.args[1].name, "path");
+    assert_eq!(invocation.args[1].value.as_deref(), Some("second"));
+
+    assert_eq!(invocation.order.len(), 4);
+    assert!(matches!(
+        &invocation.order[0],
+        InvocationElement::Argument(argument_decl)
+            if argument_decl.name == "path" && argument_decl.value.as_deref() == Some("first")
+    ));
+    assert!(matches!(
+        &invocation.order[1],
+        InvocationElement::Argument(argument_decl)
+            if argument_decl.name == "mode" && argument_decl.value.as_deref() == Some("fast")
+    ));
+    assert!(matches!(
+        &invocation.order[2],
+        InvocationElement::Argument(argument_decl)
+            if argument_decl.name == "path" && argument_decl.value.as_deref() == Some("second")
+    ));
+    assert!(matches!(
+        &invocation.order[3],
+        InvocationElement::Switch(switch_decl) if switch_decl.name == "verbose"
+    ));
+}
+
+#[test]
+fn plain_text_interpreter_preserves_typed_argument_order() {
+    let interpreter = PlainTextArgumentInterpreter;
+    let root = command("tool", "tool root")
+        .with_options(vec![switch("verbose", "verbose output")])
+        .with_arguments(vec![argument("path", "path value")])
+        .subcommand(
+            command("child", "child command")
+                .with_options(vec![switch("force", "force switch")])
+                .with_arguments(vec![argument("mode", "mode value")])
+                .handler_fn(|_, _, _| Ok(()))
+                .build(),
+        )
+        .handler_fn(|_, _, _| Ok(()))
+        .build();
+
+    let invocation = interpreter
+        .interpret(
+            &[
+                "tool".to_string(),
+                "--verbose".to_string(),
+                "--path".to_string(),
+                "src".to_string(),
+                "child".to_string(),
+                "--force".to_string(),
+                "--mode=fast".to_string(),
+                "tail".to_string(),
+            ],
+            &[root],
+        )
+        .expect("interpreter should parse argv-style input");
+
+    assert_eq!(invocation.name, "tool");
+    assert_eq!(invocation.order.len(), 2);
+    assert!(matches!(
+        &invocation.order[0],
+        InvocationElement::Switch(switch_decl) if switch_decl.name == "verbose"
+    ));
+    assert!(matches!(
+        &invocation.order[1],
+        InvocationElement::Argument(argument_decl)
+            if argument_decl.name == "path" && argument_decl.value.as_deref() == Some("src")
+    ));
+
+    let child = invocation
+        .subcommand
+        .expect("subcommand invocation should exist");
+    assert_eq!(child.name, "child");
+    assert_eq!(child.params, vec!["tail".to_string()]);
+    assert!(matches!(
+        &child.order[0],
+        InvocationElement::Switch(switch_decl) if switch_decl.name == "force"
+    ));
+    assert!(matches!(
+        &child.order[1],
+        InvocationElement::Argument(argument_decl)
+            if argument_decl.name == "mode" && argument_decl.value.as_deref() == Some("fast")
+    ));
 }
 
 #[test]

@@ -9,7 +9,11 @@ pub use cli::{
     StrategyError, StrategyErrorKind, SubcommandCatalog, SubcommandRouter, Switch, argument,
     command, switch,
 };
-pub use core::{CMDKit, CMDKitError, CoreConfig, HelpRenderer, PlainTextHelpRenderer};
+pub use core::{
+    ArgumentInterpreter, CMDKit, CMDKitBuilder, CMDKitError, CoreConfig, HelpRenderer,
+    InvocationArgs, InvocationElement, LockPoisonPolicy, PlainTextArgumentInterpreter,
+    PlainTextHelpRenderer,
+};
 
 /// Runs a fresh default [`CMDKit`] instance with pre-built commands.
 pub fn run_with_commands(commands: &[Command]) {
