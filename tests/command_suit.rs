@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use cmdkit::{Argument, CliCore, Switch, argument, command, switch};
+use cmdkit::{Argument, CMDKit, Switch, argument, command, switch};
 
 fn format_switches(switches: &[Switch]) -> String {
     switches
@@ -28,7 +28,7 @@ fn format_arguments(arguments: &[Argument]) -> String {
 fn strategy_chain_handles_subtask_tokens() {
     let captured = Arc::new(Mutex::new(Vec::new()));
     let captured_for_strategy = Arc::clone(&captured);
-    let core = CliCore::builder()
+    let core = CMDKit::builder()
         .register(
             command("parent", "Parent command")
                 .handler_fn(move |options, arguments, params| {
@@ -71,7 +71,7 @@ fn command_builder_registers_leaf_command_without_exposing_strategy_types() {
     let captured = Arc::new(Mutex::new(Vec::new()));
     let captured_for_handler = Arc::clone(&captured);
 
-    let core = CliCore::builder()
+    let core = CMDKit::builder()
         .register(
             command("echo", "Echo command")
                 .handler_fn(move |options, arguments, params| {
@@ -111,7 +111,7 @@ fn command_builder_registers_recursive_subcommands_without_router_exposure() {
     let captured = Arc::new(Mutex::new(Vec::new()));
     let captured_for_handler = Arc::clone(&captured);
 
-    let core = CliCore::builder()
+    let core = CMDKit::builder()
         .register(
             command("tool", "tool root")
                 .subcommand(

@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use cmdkit::{
-    Argument, CliCore, CliCoreError, Command, CommandStrategy, StrategyError, StrategyErrorKind,
+    Argument, CMDKit, CMDKitError, Command, CommandStrategy, StrategyError, StrategyErrorKind,
     SubcommandRouter, Switch, argument, command, switch,
 };
 type CallLog = Arc<Mutex<Vec<(Vec<Switch>, Vec<Argument>, Vec<String>)>>>;
@@ -53,7 +53,7 @@ fn argument_value<'a>(arguments: &'a [Argument], name: &str) -> Option<&'a str> 
 fn register_and_get_by_name_works() {
     let calls = Arc::new(Mutex::new(Vec::new()));
 
-    let core = CliCore::builder()
+    let core = CMDKit::builder()
         .register(build_recorder_functionality(
             "echo",
             "echo arguments",
@@ -73,7 +73,7 @@ fn register_and_get_by_name_works() {
 fn duplicate_registration_overwrites_previous_entry() {
     let calls = Arc::new(Mutex::new(Vec::new()));
 
-    let core = CliCore::builder()
+    let core = CMDKit::builder()
         .register(build_recorder_functionality(
             "dup",
             "first",
@@ -96,7 +96,7 @@ fn duplicate_registration_overwrites_previous_entry() {
 fn run_from_args_routes_trailing_arguments_to_strategy() {
     let calls = Arc::new(Mutex::new(Vec::new()));
 
-    let core = CliCore::builder()
+    let core = CMDKit::builder()
         .register(
             command("echo", "echo arguments")
                 .handler(RecorderStrategy {
@@ -131,7 +131,7 @@ fn run_from_args_routes_trailing_arguments_to_strategy() {
 fn strategy_receives_subtask_tokens_for_chain_of_responsibility() {
     let calls = Arc::new(Mutex::new(Vec::new()));
 
-    let core = CliCore::builder()
+    let core = CMDKit::builder()
         .register(
             command("test", "test root")
                 .handler(RecorderStrategy {
@@ -167,7 +167,7 @@ fn functionality_from_fn_supports_function_based_strategy_registration() {
     let calls = Arc::new(Mutex::new(Vec::new()));
     let calls_for_strategy = Arc::clone(&calls);
 
-    let core = CliCore::builder()
+    let core = CMDKit::builder()
         .register(
             command("fncmd", "defined from a function")
                 .handler_fn(move |options, arguments, params| {
@@ -197,13 +197,13 @@ fn functionality_from_fn_supports_function_based_strategy_registration() {
 
 #[test]
 fn run_from_args_returns_missing_command_error() {
-    let core = CliCore::builder();
+    let core = CMDKit::builder();
     let args = vec!["app".to_string()];
 
     let result = core.build().try_run_from_args(&args);
 
     match result {
-        Err(CliCoreError::MissingCommand { help }) => {
+        Err(CMDKitError::MissingCommand { help }) => {
             assert!(help.contains("Usage:"));
         }
         _ => panic!("expected missing command error"),
@@ -212,13 +212,13 @@ fn run_from_args_returns_missing_command_error() {
 
 #[test]
 fn help_text_uses_explicit_binary_name_for_missing_command() {
-    let core = CliCore::builder();
+    let core = CMDKit::builder();
     let args = vec!["custom-cli".to_string()];
 
     let result = core.build().try_run_from_args(&args);
 
     match result {
-        Err(CliCoreError::MissingCommand { help }) => {
+        Err(CMDKitError::MissingCommand { help }) => {
             assert!(help.contains("Usage: custom-cli <command> [args...]"));
         }
         _ => panic!("expected missing command error"),
@@ -227,13 +227,13 @@ fn help_text_uses_explicit_binary_name_for_missing_command() {
 
 #[test]
 fn help_text_uses_explicit_binary_name_for_unknown_command() {
-    let core = CliCore::builder();
+    let core = CMDKit::builder();
     let args = vec!["custom-cli".to_string(), "not-a-command".to_string()];
 
     let result = core.build().try_run_from_args(&args);
 
     match result {
-        Err(CliCoreError::UnknownCommand { help, .. }) => {
+        Err(CMDKitError::UnknownCommand { help, .. }) => {
             assert!(help.contains("Usage: custom-cli <command> [args...]"));
         }
         _ => panic!("expected unknown command error"),
@@ -242,13 +242,13 @@ fn help_text_uses_explicit_binary_name_for_unknown_command() {
 
 #[test]
 fn run_from_args_returns_unknown_command_error() {
-    let core = CliCore::builder().build();
+    let core = CMDKit::builder().build();
     let args = vec!["app".to_string(), "unknown".to_string()];
 
     let result = core.try_run_from_args(&args);
 
     match result {
-        Err(CliCoreError::UnknownCommand { command, help }) => {
+        Err(CMDKitError::UnknownCommand { command, help }) => {
             assert_eq!(command, "unknown");
             assert!(help.contains("supported commands:"));
         }
@@ -260,7 +260,7 @@ fn run_from_args_returns_unknown_command_error() {
 fn strategy_errors_bubble_with_kind_and_message() {
     let calls = Arc::new(Mutex::new(Vec::new()));
 
-    let core = CliCore::builder()
+    let core = CMDKit::builder()
         .register(build_recorder_functionality(
             "validate",
             "fails validation",
@@ -276,7 +276,7 @@ fn strategy_errors_bubble_with_kind_and_message() {
     let result = core.try_run_from_args(&args);
 
     match result {
-        Err(CliCoreError::StrategyExecution { command, source }) => {
+        Err(CMDKitError::StrategyExecution { command, source }) => {
             assert_eq!(command, "validate");
             assert_eq!(source.kind, StrategyErrorKind::InvalidArguments);
             assert_eq!(source.message, "missing value");
@@ -289,7 +289,7 @@ fn strategy_errors_bubble_with_kind_and_message() {
 fn parser_rejects_unknown_flags() {
     let calls = Arc::new(Mutex::new(Vec::new()));
 
-    let core = CliCore::builder()
+    let core = CMDKit::builder()
         .register(
             command("strict", "strict command")
                 .handler(RecorderStrategy {
@@ -310,7 +310,7 @@ fn parser_rejects_unknown_flags() {
 
     let result = core.try_run_from_args(&args);
     match result {
-        Err(CliCoreError::StrategyExecution { command, source }) => {
+        Err(CMDKitError::StrategyExecution { command, source }) => {
             assert_eq!(command, "strict");
             assert_eq!(source.kind, StrategyErrorKind::InvalidArguments);
             assert!(source.message.contains("unknown flag '--unknown'"));
@@ -323,7 +323,7 @@ fn parser_rejects_unknown_flags() {
 fn parser_enforces_required_argument_presence_and_non_empty_values() {
     let calls = Arc::new(Mutex::new(Vec::new()));
 
-    let core = CliCore::builder()
+    let core = CMDKit::builder()
         .register(
             command("strict", "strict command")
                 .handler(RecorderStrategy {
@@ -338,7 +338,7 @@ fn parser_enforces_required_argument_presence_and_non_empty_values() {
     let missing_value = vec!["app".to_string(), "strict".to_string()];
     let missing_result = core.try_run_from_args(&missing_value);
     match missing_result {
-        Err(CliCoreError::StrategyExecution { source, .. }) => {
+        Err(CMDKitError::StrategyExecution { source, .. }) => {
             assert_eq!(source.kind, StrategyErrorKind::InvalidArguments);
             assert!(
                 source
@@ -356,7 +356,7 @@ fn parser_enforces_required_argument_presence_and_non_empty_values() {
     ];
     let inline_empty_result = core.try_run_from_args(&inline_empty);
     match inline_empty_result {
-        Err(CliCoreError::StrategyExecution { source, .. }) => {
+        Err(CMDKitError::StrategyExecution { source, .. }) => {
             assert_eq!(source.kind, StrategyErrorKind::InvalidArguments);
             assert!(
                 source
@@ -375,7 +375,7 @@ fn parser_enforces_required_argument_presence_and_non_empty_values() {
     ];
     let next_empty_result = core.try_run_from_args(&next_empty);
     match next_empty_result {
-        Err(CliCoreError::StrategyExecution { source, .. }) => {
+        Err(CMDKitError::StrategyExecution { source, .. }) => {
             assert_eq!(source.kind, StrategyErrorKind::InvalidArguments);
             assert!(
                 source
@@ -392,7 +392,7 @@ fn parser_accepts_argument_aliases_and_uses_last_value_wins() {
     let calls = Arc::new(Mutex::new(Vec::new()));
     let calls_for_strategy = Arc::clone(&calls);
 
-    let core = CliCore::builder()
+    let core = CMDKit::builder()
         .register(
             command("alias", "alias command")
                 .handler_fn(move |options, arguments, params| {
@@ -427,10 +427,10 @@ fn parser_accepts_argument_aliases_and_uses_last_value_wins() {
 
 #[test]
 fn independent_instances_do_not_share_registry_entries() {
-    let core_b = CliCore::builder().build();
+    let core_b = CMDKit::builder().build();
     let calls = Arc::new(Mutex::new(Vec::new()));
 
-    let core_a = CliCore::builder()
+    let core_a = CMDKit::builder()
         .register(build_recorder_functionality(
             "isolated",
             "only in core_a",
@@ -475,7 +475,7 @@ fn subcommand_router_dispatches_recursively_to_deep_children() {
         )),
     );
 
-    let core = CliCore::builder().register(root).build();
+    let core = CMDKit::builder().register(root).build();
 
     let args = vec![
         "app".to_string(),
@@ -513,7 +513,7 @@ fn subcommand_boundary_defers_flag_parsing_to_child_command() {
         .build();
 
     let root = Command::new("tool", "tool root", SubcommandRouter::new().register(run));
-    let core = CliCore::builder().register(root).build();
+    let core = CMDKit::builder().register(root).build();
 
     let args = vec![
         "app".to_string(),
@@ -538,7 +538,7 @@ fn positional_tokens_before_subcommand_boundary_remain_current_level_params() {
         .handler_fn(|_, _, _| Ok(()))
         .build();
     let root = Command::new("tool", "tool root", SubcommandRouter::new().register(run));
-    let core = CliCore::builder().register(root).build();
+    let core = CMDKit::builder().register(root).build();
 
     let args = vec![
         "app".to_string(),
@@ -549,7 +549,7 @@ fn positional_tokens_before_subcommand_boundary_remain_current_level_params() {
 
     let result = core.try_run_from_args(&args);
     match result {
-        Err(CliCoreError::StrategyExecution { source, .. }) => {
+        Err(CMDKitError::StrategyExecution { source, .. }) => {
             assert_eq!(source.kind, StrategyErrorKind::InvalidArguments);
             assert!(source.message.contains("unknown subcommand 'pre'"));
         }
@@ -573,13 +573,13 @@ fn help_renderer_includes_recursive_subcommands_from_router_catalog() {
         )),
     );
 
-    let core = CliCore::builder().register(root).build();
+    let core = CMDKit::builder().register(root).build();
 
     let args = vec!["app".to_string()];
     let result = core.try_run_from_args(&args);
 
     match result {
-        Err(CliCoreError::MissingCommand { help }) => {
+        Err(CMDKitError::MissingCommand { help }) => {
             assert!(help.contains("tool: tool root"));
             assert!(help.contains("tool child: child command"));
             assert!(help.contains("tool child leaf: leaf command"));
@@ -603,13 +603,13 @@ fn help_renderer_includes_nested_catalogs_hidden_by_fallback_wrappers() {
         .subcommand(command("outer", "outer command").handler_fn(|_, _, _| Ok(())))
         .build();
 
-    let core = CliCore::builder().register(root).build();
+    let core = CMDKit::builder().register(root).build();
 
     let args = vec!["app".to_string()];
     let result = core.try_run_from_args(&args);
 
     match result {
-        Err(CliCoreError::MissingCommand { help }) => {
+        Err(CMDKitError::MissingCommand { help }) => {
             assert!(help.contains("tool outer: outer command"));
             assert!(help.contains("tool inner: inner branch"));
             assert!(help.contains("tool inner leaf: leaf command"));
@@ -639,13 +639,13 @@ fn help_renderer_includes_optional_metadata_fields() {
         ])
         .build();
 
-    let core = CliCore::builder().register(cmd).build();
+    let core = CMDKit::builder().register(cmd).build();
 
     let args = vec!["app".to_string()];
     let result = core.try_run_from_args(&args);
 
     match result {
-        Err(CliCoreError::MissingCommand { help }) => {
+        Err(CMDKitError::MissingCommand { help }) => {
             assert!(help.contains("- build: Build a project"));
             assert!(help.contains("usage: build --path <dir> [--release]"));
             assert!(help.contains("details: Builds the project artifacts for distribution"));
