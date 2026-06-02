@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use cmdkit::{Argument, CliCore, Command, CommandStrategy, StrategyError, Switch};
+use cmdkit::{Argument, CMDKit, Command, CommandStrategy, StrategyError, Switch};
 
 struct TestStrategy;
 struct TestStrategyV2;
@@ -41,7 +41,7 @@ fn test_register_and_get() {
     let name = unique_name("register_get");
     let functionality = Command::new(name.clone(), "A test functionality", TestStrategy);
 
-    let core = CliCore::builder().register(functionality.clone()).build();
+    let core = CMDKit::builder().register(functionality.clone()).build();
     let retrieved = core.get(&name).expect("Functionality should be registered");
     assert_eq!(retrieved.metadata.name, functionality.metadata.name);
     assert_eq!(
@@ -55,14 +55,14 @@ fn test_get_all() {
     let name = unique_name("get_all");
     let functionality = Command::new(name.clone(), "A test functionality", TestStrategy);
 
-    let core = CliCore::builder().register(functionality.clone()).build();
+    let core = CMDKit::builder().register(functionality.clone()).build();
     let all = core.get_all();
     assert!(all.iter().any(|f| f.metadata.name == name));
 }
 
 #[test]
 fn test_non_existent() {
-    let core = CliCore::builder().build();
+    let core = CMDKit::builder().build();
     let result = core.get("nonexistent");
     assert!(
         result.is_none(),
@@ -73,7 +73,7 @@ fn test_non_existent() {
 #[test]
 fn test_register_duplicate_name_overwrites() {
     let name = unique_name("duplicate");
-    let core = CliCore::builder()
+    let core = CMDKit::builder()
         .register(Command::new(name.clone(), "original", TestStrategy))
         .register(Command::new(name.clone(), "updated", TestStrategyV2))
         .build();
@@ -84,10 +84,10 @@ fn test_register_duplicate_name_overwrites() {
 
 #[test]
 fn test_instances_are_isolated() {
-    let core_b = CliCore::builder().build();
+    let core_b = CMDKit::builder().build();
     let name = unique_name("isolated");
 
-    let core_a = CliCore::builder()
+    let core_a = CMDKit::builder()
         .register(Command::new(name.clone(), "in a", TestStrategy))
         .build();
 
