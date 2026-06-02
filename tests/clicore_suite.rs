@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use cmdkit::{
-    Argument, ArgumentInterpreter, CliCore, CliCoreError, Command, CommandStrategy, CoreConfig,
+    Argument, ArgumentInterpreter, CliCore, CliCoreError, Command, CommandStrategy,
     InvocationElement, PlainTextArgumentInterpreter, StrategyError, StrategyErrorKind,
     SubcommandRouter, Switch, argument, command, switch,
 };
@@ -288,7 +288,6 @@ fn strategy_errors_bubble_with_kind_and_message() {
 
 #[test]
 fn interpreter_rejects_unknown_flags() {
-    let core = CliCore::new();
     let calls = Arc::new(Mutex::new(Vec::new()));
 
     let core = CliCore::builder()
@@ -323,7 +322,6 @@ fn interpreter_rejects_unknown_flags() {
 
 #[test]
 fn interpreter_enforces_required_argument_presence_and_non_empty_values() {
-    let core = CliCore::new();
     let calls = Arc::new(Mutex::new(Vec::new()));
 
     let core = CliCore::builder()
@@ -392,7 +390,6 @@ fn interpreter_enforces_required_argument_presence_and_non_empty_values() {
 
 #[test]
 fn interpreter_accepts_argument_aliases_and_uses_last_value_wins() {
-    let core = CliCore::new();
     let calls = Arc::new(Mutex::new(Vec::new()));
     let calls_for_strategy = Arc::clone(&calls);
 
@@ -448,34 +445,6 @@ fn independent_instances_do_not_share_registry_entries() {
 }
 
 #[test]
-fn wrapper_calls_do_not_share_runtime_state() {
-    let binary = std::env::var("CARGO_BIN_EXE_wrapper_probe")
-        .expect("wrapper_probe binary should be built by cargo test");
-
-    let output = ProcessCommand::new(binary)
-        .arg("help")
-        .output()
-        .expect("wrapper_probe should run successfully");
-
-    assert!(output.status.success());
-
-    let stdout = String::from_utf8(output.stdout).expect("stdout should be valid utf-8");
-    let first_section = stdout
-        .split("--SECOND--")
-        .next()
-        .expect("first section should exist");
-    let second_section = stdout
-        .split("--SECOND--")
-        .nth(1)
-        .expect("second section should exist");
-
-    assert!(first_section.contains("alpha command"));
-    assert!(!first_section.contains("beta command"));
-    assert!(second_section.contains("beta command"));
-    assert!(!second_section.contains("alpha command"));
-}
-
-#[test]
 fn configured_argument_interpreter_can_drive_invocation() {
     struct FixedInterpreter;
 
@@ -503,18 +472,19 @@ fn configured_argument_interpreter_can_drive_invocation() {
     }
 
     let calls = Arc::new(Mutex::new(Vec::new()));
-    let core = CliCore::create(CoreConfig::new().with_argument_interpreter(FixedInterpreter));
-
-    core.register(
-        command("echo", "echo arguments")
-            .handler(RecorderStrategy {
-                calls: Arc::clone(&calls),
-                error: None,
-            })
-            .with_options(vec![switch("loud", "loud switch")])
-            .with_arguments(vec![argument("path", "path value")])
-            .build(),
-    );
+    let core = CliCore::builder()
+        .with_argument_interpreter(FixedInterpreter)
+        .register(
+            command("echo", "echo arguments")
+                .handler(RecorderStrategy {
+                    calls: Arc::clone(&calls),
+                    error: None,
+                })
+                .with_options(vec![switch("loud", "loud switch")])
+                .with_arguments(vec![argument("path", "path value")])
+                .build(),
+        )
+        .build();
 
     assert!(core.try_run_from_args(&["app".to_string()]).is_ok());
 

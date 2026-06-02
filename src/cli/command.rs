@@ -179,10 +179,10 @@ impl Command {
     }
 
     pub(crate) fn execute(&self, invocation: &InvocationArgs) -> Result<(), StrategyError> {
-        if let Some(subcommand) = &invocation.subcommand {
-            if let Some(command) = self.resolve_subcommand(&subcommand.name) {
-                return command.execute(subcommand);
-            }
+        if let Some(subcommand) = &invocation.subcommand
+            && let Some(command) = self.resolve_subcommand(&subcommand.name)
+        {
+            return command.execute(subcommand);
         }
 
         self.strategy.execute(
