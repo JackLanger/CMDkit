@@ -106,3 +106,28 @@ P3
     - Acceptance: 
         1. Argument Parser is reworked to use metadata values rather creating new Arguments.
         2. All tests pass
+
+Async runtime follow-up
+
+P2
+[ ] Add a config-level preflight phase to detect and apply overrides before dispatch.
+    - Problem: runtime override intent (for example mode toggles or global switches) is currently mixed into normal dispatch input and is not resolved centrally before interpretation/execution.
+    - Scope: src/core.rs CoreConfig + CMDKit::try_run_from_args + CMDKitMaster::try_run_from_args + tests/core tests + tests/clicore_suite.rs.
+    - Acceptance: preflight runs before command dispatch, can normalize/filter args, can return runtime directives, and behavior is identical across CMDKit and CMDKitMaster paths.
+
+[ ] Add an explicit shutdown/join lifecycle for CMDKitMaster workers.
+    - Problem: worker threads are spawned, but the public API does not expose a clean way to stop them or wait for termination.
+    - Scope: src/core.rs CMDKitMaster worker management + tests/core tests.
+    - Acceptance: callers can close the executor, stop workers, and observe deterministic shutdown behavior without leaking background threads.
+
+P3 
+[ ] Align public naming and docs with the broader runtime model.
+    - Problem: some user-facing wording still implies a CLI-only framing even though the crate now models general command dispatch and orchestration.
+    - Scope: README.md + Cargo.toml metadata + public API docs in src/lib.rs and src/core.rs.
+    - Acceptance: public docs and metadata describe the runtime consistently without over-constraining the use case to CLI-only workflows.
+
+P4 (Optional)
+[ ] Wrap the execution handle in a more ergonomic awaitable type.
+    - Problem: the public handle currently exposes the underlying oneshot result shape, which is correct but a bit awkward for callers.
+    - Scope: src/core.rs public async handle API + lib exports + tests.
+    - Acceptance: callers can await a single-layer result type or helper wrapper without manually handling the internal oneshot cancellation shape.
