@@ -112,7 +112,10 @@ impl CMDKitMasterBuilder {
             });
         }
 
-        Ok(ThreadPoolCMDKitMaster::new(self.inner.build(), worker_count))
+        Ok(ThreadPoolCMDKitMaster::new(
+            self.inner.build(),
+            worker_count,
+        ))
     }
 }
 
@@ -126,6 +129,7 @@ impl Default for CMDKitMasterBuilder {
 ///
 /// `CMDKitMaster` accepts invocations immediately and executes them on background
 /// worker threads against a shared, immutable [`CMDKit`] runtime instance.
+#[derive(Debug)]
 pub struct ThreadPoolCMDKitMaster {
     submit_tx: Option<Sender<QueuedInvocation>>,
     worker_handles: Vec<thread::JoinHandle<()>>,

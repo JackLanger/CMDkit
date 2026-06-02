@@ -2,9 +2,17 @@
 name = "cmdkit-master"
 version = "0.1.0"
 edition = "2024"
+description = "Thread-pool executor companion for CMDkit runtime dispatch."
+license = "GPL-3.0-or-later"
+repository = "https://github.com/JackLanger/CMDkit"
+documentation = "https://docs.rs/cmdkit-master"
+readme = "README.md"
+keywords = ["cmdkit", "executor", "thread-pool", "dispatch", "runtime"]
+categories = ["asynchronous", "concurrency", "development-tools"]
+rust-version = "1.85"
 
 [dependencies]
-cmdkit = { path = ".." }
+cmdkit = { version = "0.3.0", path = ".." }
 futures-channel = "0.3"
 crossbeam-channel = "0.5"
 
