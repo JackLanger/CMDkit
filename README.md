@@ -241,6 +241,53 @@ fn main() {
 Use `CoreConfig` to customize runtime behavior such as the help renderer.
 The registry is owned per `CMDKit` instance and does not rely on lock-poison handling.
 
+## Implementing Extensions
+
+CMDkit exposes two main extension points: `HelpRenderer` and `ArgumentInterpreter`.
+
+### Custom Help Renderer
+
+Implement `HelpRenderer` when you want to replace the default plain-text help output:
+
+```rust
+use cmdkit::{Command, HelpRenderer};
+
+struct CompactHelp;
+
+impl HelpRenderer for CompactHelp {
+    fn render(&self, caller: &str, commands: &[Command]) -> String {
+        format!("{}: {} commands available", caller, commands.len())
+    }
+}
+```
+
+### Custom Argument Interpreter
+
+Implement `ArgumentInterpreter` when you want to control how raw input is turned into invocation data:
+
+```rust
+use cmdkit::{ArgumentInterpreter, CMDKitError, Command, InvocationArgs};
+
+struct FixedCommandInterpreter;
+
+impl ArgumentInterpreter for FixedCommandInterpreter {
+    fn interpret(
+        &self,
+        _arg: &[String],
+        _registered_commands: &[Command],
+    ) -> Result<InvocationArgs, CMDKitError> {
+        Ok(InvocationArgs {
+            name: "status".to_string(),
+            args: Vec::new(),
+            switches: Vec::new(),
+            params: Vec::new(),
+            order: Vec::new(),
+            subcommand: None,
+        })
+    }
+}
+```
+
 ## Error Model
 
 - `CMDKitError` for dispatch/runtime-level failures:
