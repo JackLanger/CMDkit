@@ -11,16 +11,22 @@ pub use cli::{
 };
 pub use core::{
     ArgumentInterpreter, CMDKit, CMDKitBuilder, CMDKitError, CoreConfig, HelpRenderer,
-    InvocationArgs, InvocationElement, LockPoisonPolicy, PlainTextArgumentInterpreter,
-    PlainTextHelpRenderer,
+    InvocationArgs, InvocationElement, PlainTextArgumentInterpreter, PlainTextHelpRenderer,
 };
 
 /// Runs a fresh default [`CMDKit`] instance with pre-built commands.
+///
+/// This is a convenience wrapper that prints errors. Prefer
+/// [`try_run_with_commands`] when callers should handle registration failures
+/// (such as alias/name collisions) programmatically.
 pub fn run_with_commands(commands: &[Command]) {
     core::CMDKit::run_with_commands(commands)
 }
 
 /// Runs a fresh default [`CMDKit`] instance with pre-built commands.
+///
+/// This is the preferred wrapper for library use because it returns
+/// [`CMDKitError`] instead of hiding failure paths.
 pub fn try_run_with_commands(commands: &[Command]) -> Result<(), CMDKitError> {
     core::CMDKit::try_run_with_commands(commands)
 }

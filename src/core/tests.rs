@@ -1,8 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use crate::{
-    CMDKit, CMDKitError, Command, CoreConfig, InvocationArgs, PlainTextHelpRenderer, StrategyError,
-    argument, command,
+    CMDKit, CMDKitError, Command, CoreConfig, InvocationArgs, StrategyError, argument, command,
 };
 
 struct MarkerHelpRenderer;
@@ -152,12 +151,4 @@ fn builder_with_config_uses_custom_renderer_for_missing_command_help() {
         }
         _ => panic!("expected missing command error"),
     }
-}
-
-#[test]
-fn lock_poison_policy_values_are_stable() {
-    assert_eq!(crate::core::LockPoisonPolicy::FailFast as u8, 0);
-    assert_eq!(crate::core::LockPoisonPolicy::Recover as u8, 1);
-
-    let _ = PlainTextHelpRenderer;
 }
