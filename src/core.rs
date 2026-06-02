@@ -1,4 +1,11 @@
-use std::{error::Error, fmt, sync::Arc};
+use std::{
+    error::Error,
+    fmt,
+    sync::{Arc, Mutex, mpsc},
+    thread,
+};
+
+use futures_channel::oneshot;
 
 use crate::{Argument, Command, StrategyError, Switch, cli::CommandRegistry};
 
@@ -393,6 +400,8 @@ impl Default for CoreConfig {
 pub enum CMDKitError {
     /// Command registration failed due to invalid or conflicting metadata.
     Registration { message: String },
+    /// Master executor cannot accept or complete jobs.
+    ExecutorUnavailable { message: String },
     /// No command name was provided in argv.
     MissingCommand { help: String },
     /// The command name does not exist in the registry.
@@ -411,6 +420,9 @@ impl fmt::Display for CMDKitError {
         match self {
             Self::Registration { message } => {
                 write!(f, "Command registration failed: {message}")
+            }
+            Self::ExecutorUnavailable { message } => {
+                write!(f, "Executor unavailable: {message}")
             }
             Self::MissingCommand { help } => {
                 write!(f, "No command provided.\n\n{help}")
@@ -623,6 +635,7 @@ impl CMDKitBuilder {
         Ok(self)
     }
 
+    /// Replaces the argument interpreter for all commands built by this builder.
     pub fn with_argument_interpreter<I>(mut self, interpreter: I) -> Self
     where
         I: ArgumentInterpreter + 'static,
@@ -631,11 +644,126 @@ impl CMDKitBuilder {
         self
     }
 
+    /// Finalizes this builder into a reusable [`CMDKit`] runtime.
     pub fn build(&self) -> CMDKit {
         CMDKit {
             registry: self.registry.clone(),
             config: self.config.clone(),
         }
+    }
+
+    /// Creates a [`CMDKitMaster`] that submits invocations to worker threads.
+    ///
+    /// The returned master exposes async completion handles for submitted jobs.
+    /// `worker_count` values of `0` are normalized to `1` worker.
+    pub fn as_master_executor(&self, config: CoreConfig, worker_count: usize) -> CMDKitMaster {
+        CMDKitMaster::new(self.registry.clone(), config, worker_count)
+    }
+}
+
+type WorkerResult = Result<(), CMDKitError>;
+
+/// A future handle that resolves when a submitted invocation completes.
+///
+/// Awaiting this handle yields `Result<Result<(), CMDKitError>, Canceled>` where:
+/// - outer `Err(Canceled)` means the executor dropped the completion channel.
+/// - outer `Ok(inner)` carries the command execution result.
+pub type ExecutionHandle = oneshot::Receiver<WorkerResult>;
+
+struct QueuedInvocation {
+    args: Vec<String>,
+    completion_tx: oneshot::Sender<WorkerResult>,
+}
+
+/// Multi-worker command dispatcher that returns awaitable completion handles.
+///
+/// `CMDKitMaster` accepts invocations immediately and executes them on background
+/// worker threads using the registry snapshot from the originating builder.
+pub struct CMDKitMaster {
+    submit_tx: mpsc::Sender<QueuedInvocation>,
+    config: CoreConfig,
+}
+
+impl CMDKitMaster {
+    fn new(registry: CommandRegistry, config: CoreConfig, worker_count: usize) -> Self {
+        let (submit_tx, submit_rx) = mpsc::channel::<QueuedInvocation>();
+        let shared_rx = Arc::new(Mutex::new(submit_rx));
+
+        for _ in 0..worker_count.max(1) {
+            let rx = Arc::clone(&shared_rx);
+            let worker_registry = registry.clone();
+            let worker_config = config.clone();
+
+            thread::spawn(move || {
+                let cmdkit = CMDKit {
+                    registry: worker_registry,
+                    config: worker_config,
+                };
+
+                loop {
+                    let next_job = {
+                        let guard = rx
+                            .lock()
+                            .expect("executor queue mutex should not be poisoned");
+                        guard.recv()
+                    };
+
+                    let Ok(job) = next_job else {
+                        break;
+                    };
+
+                    let result = cmdkit.try_run_from_args(&job.args);
+                    let _ = job.completion_tx.send(result);
+                }
+            });
+        }
+
+        Self { submit_tx, config }
+    }
+
+    fn resolved_handle(result: WorkerResult) -> ExecutionHandle {
+        let (tx, rx) = oneshot::channel();
+        let _ = tx.send(result);
+        rx
+    }
+
+    fn dispatch(&self, args: &[String]) -> Result<ExecutionHandle, CMDKitError> {
+        let (completion_tx, completion_rx) = oneshot::channel();
+        self.submit_tx
+            .send(QueuedInvocation {
+                args: args.to_vec(),
+                completion_tx,
+            })
+            .map_err(|_| CMDKitError::ExecutorUnavailable {
+                message: "worker queue is closed".to_string(),
+            })?;
+
+        Ok(completion_rx)
+    }
+
+    /// Submits an invocation for worker execution and returns its completion handle.
+    ///
+    /// This method is non-blocking with respect to command execution. Callers can
+    /// await the returned [`ExecutionHandle`] to observe completion.
+    pub fn try_run_from_args(&self, args: &[String]) -> Result<ExecutionHandle, CMDKitError> {
+        let binary = args
+            .iter()
+            .next()
+            .cloned()
+            .unwrap_or_else(|| "cli".to_string());
+
+        if args.get(1).is_some_and(|arg| arg == "help") {
+            println!("{}", self.config.help_renderer.render(&binary, &[]));
+            return Ok(Self::resolved_handle(Ok(())));
+        }
+
+        self.dispatch(args)
+    }
+
+    /// Submits process argv for worker execution and returns its completion handle.
+    pub fn try_run_from_env(&self) -> Result<ExecutionHandle, CMDKitError> {
+        let argv = std::env::args().collect::<Vec<String>>();
+        self.try_run_from_args(&argv)
     }
 }
 
