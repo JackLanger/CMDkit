@@ -1,5 +1,7 @@
 use std::{collections::BTreeMap, sync::Arc};
 
+use crate::core::{InvocationArgs, InvocationElement};
+
 use super::{Argument, Command, StrategyError, Switch};
 
 /// Optional help-time capability exposed by strategies that can route to child strategies.
@@ -135,7 +137,18 @@ impl CommandStrategy for SubcommandRouter {
             ))
         })?;
 
-        command.execute(params[1..].to_vec())
+        command.execute(&InvocationArgs {
+            name: command.metadata.name.clone(),
+            args: Vec::new(),
+            switches: Vec::new(),
+            params: params[1..].to_vec(),
+            order: params[1..]
+                .iter()
+                .cloned()
+                .map(InvocationElement::Param)
+                .collect(),
+            subcommand: None,
+        })
     }
 
     fn subcommand_catalog(&self) -> Option<&dyn SubcommandCatalog> {

@@ -10,7 +10,8 @@ pub use cli::{
     command, switch,
 };
 pub use core::{
-    CliCore, CliCoreError, CoreConfig, HelpRenderer, LockPoisonPolicy, PlainTextHelpRenderer,
+    ArgumentInterpreter, CliCore, CliCoreError, CoreConfig, HelpRenderer, InvocationArgs,
+    InvocationElement, LockPoisonPolicy, PlainTextArgumentInterpreter, PlainTextHelpRenderer,
 };
 
 /// Runs a fresh default [`CliCore`] instance with pre-built commands.
