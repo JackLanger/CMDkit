@@ -12,6 +12,50 @@ use crate::{
     Argument, ArgumentDefinition, ArgumentValue, Command, StrategyError, SwitchDefinition,
     cli::CommandCatalogue,
 };
+use crate::core::logging::LogLevel;
+
+pub mod logging {
+
+    #[repr(u8)]
+    #[derive(Clone, Copy, Eq, PartialEq, Debug)]
+    pub enum LogLevel {
+        Debug,
+        Info,
+        Warn,
+        Error,
+    }
+    pub trait LogSink: Send + Sync {
+        fn log(&self, level: LogLevel, message: &str);
+        fn info(&self, message: &str)  { self.log(LogLevel::Info, message); }
+        fn warn(&self, message: &str)  { self.log(LogLevel::Warn, message); }
+        fn error(&self, message: &str) { self.log(LogLevel::Error, message); }
+        fn debug(&self, message: &str) { self.log(LogLevel::Debug, message); }
+    }
+
+
+    pub struct ConsoleLogSink {
+        verbosity: LogLevel,
+    }
+
+    impl ConsoleLogSink {
+        pub fn new(verbosity: LogLevel) -> Self{
+            Self{
+                verbosity
+            }
+        }
+    }
+    impl LogSink for ConsoleLogSink {
+        fn log(&self, level: LogLevel, message: &str) {
+
+            match level {
+                // always print errors
+                LogLevel::Error =>  eprintln!("{}", message),
+                // print only if loglevel is higher or equal to loglevel set in log sink
+                _ => if self.verbosity as u8 - level as u8 <= 0 { println!("{}", message) }
+            }
+        }
+    }
+}
 
 /// Renders user-facing help output from registered command metadata.
 pub trait HelpRenderer: Send + Sync {
@@ -384,6 +428,7 @@ impl HelpRenderer for PlainTextHelpRenderer {
 pub struct CoreConfig {
     pub help_renderer: Arc<dyn HelpRenderer>,
     pub argument_interpreter: Arc<dyn ArgumentInterpreter>,
+    pub logger : Arc<dyn logging::LogSink>
 }
 
 impl CoreConfig {
@@ -392,6 +437,7 @@ impl CoreConfig {
         Self {
             help_renderer: Arc::new(PlainTextHelpRenderer),
             argument_interpreter: Arc::new(PlainTextArgumentInterpreter),
+            logger : Arc::new(logging::ConsoleLogSink::new(LogLevel::Info))
         }
     }
 
@@ -675,6 +721,14 @@ impl CMDKitBuilder {
         I: ArgumentInterpreter + 'static,
     {
         self.config.argument_interpreter = Arc::new(interpreter);
+        self
+    }
+
+    pub fn with_logger<L>(mut self, log_sink: L) -> Self
+    where
+        L: logging::LogSink + 'static,
+    {
+        self.config.logger = Arc::new(log_sink);
         self
     }
 
