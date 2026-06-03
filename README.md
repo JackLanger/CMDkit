@@ -314,4 +314,4 @@ fn run_embedded(args: Vec<String>) -> Result<(), CMDKitError> {
 
 ## License
 
-This project is licensed under the Apache License 2.0.
+This project is licensed under Apache-2.0. See [LICENSE](LICENSE) for details.
