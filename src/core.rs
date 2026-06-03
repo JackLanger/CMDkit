@@ -56,7 +56,7 @@ pub mod logging {
                 LogLevel::Error => eprintln!("{}", message),
                 // print only if loglevel is higher or equal to loglevel set in log sink
                 _ => {
-                    if self.verbosity as u8 - level as u8 <= 0 {
+                    if self.verbosity as i8 - level as i8 <= 0 {
                         println!("{}", message)
                     }
                 }
@@ -181,6 +181,13 @@ impl PlainTextArgumentInterpreter {
         command: &Command,
         args: &[String],
     ) -> Result<InvocationArgs, CMDKitError> {
+        Self::parse_command_impl(command, args)
+    }
+
+    fn parse_command_impl(
+        command: &Command,
+        args: &[String],
+    ) -> Result<InvocationArgs, CMDKitError> {
         let mut switches = Vec::new();
         let mut arguments = Vec::new();
         let mut params = Vec::new();
@@ -201,9 +208,10 @@ impl PlainTextArgumentInterpreter {
                     switches,
                     params,
                     order,
-                    subcommand: Some(Box::new(
-                        self.parse_command(&subcommand, &args[index + 1..])?,
-                    )),
+                    subcommand: Some(Box::new(Self::parse_command_impl(
+                        &subcommand,
+                        &args[index + 1..],
+                    )?)),
                 });
             }
 
@@ -341,7 +349,7 @@ impl ArgumentInterpreter for PlainTextArgumentInterpreter {
                 }
             })?;
 
-        self.parse_command(&command, &arg[1..])
+        self.parse_command(command, &arg[1..])
     }
 }
 

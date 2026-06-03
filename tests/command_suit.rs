@@ -3,11 +3,7 @@ use std::sync::{Arc, Mutex};
 use cmdkit::{Argument, ArgumentValue, CMDKit, argument, command, switch};
 
 fn format_switches(switches: &[String]) -> String {
-    switches
-        .iter()
-        .map(|switch| switch.clone())
-        .collect::<Vec<String>>()
-        .join(",")
+    switches.to_vec().join(",")
 }
 
 fn format_arguments(arguments: &[Argument]) -> String {
