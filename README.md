@@ -185,17 +185,20 @@ impl LogSink for StdoutLogger {
     }
 }
 
-let core = cmdkit::CMDKit::builder()
-    .with_config(CoreConfig::new().with_logger(StdoutLogger))
-    .register(
-        command("run", "run command").handler_fn_with_context(
-            |ctx: &ExecutionContext, _invocation| {
+fn main() {
+  let core = cmdkit::CMDKit::builder()
+          .with_config(CoreConfig::new().with_logger(StdoutLogger))
+          .register(
+            command("run", "run command").handler_fn_with_context(
+              |ctx: &ExecutionContext, _invocation| {
                 ctx.logger.info("run called");
                 Ok::<(), StrategyError>(())
-            },
-        ).build(),
-    )
-    .build();
+              },
+            ).build(),
+          )
+          .build();  
+}
+
 ```
 
 ## Parser Behavior
