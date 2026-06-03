@@ -9,10 +9,11 @@ pub use cli::{
     CommandStrategy, FunctionStrategy, StrategyError, StrategyErrorKind, SubcommandCatalog,
     SubcommandRouter, SwitchDefinition, argument, command, switch,
 };
+pub use core::logging::{ConsoleLogSink, LogLevel, LogSink};
 pub use core::{
     ArgumentInterpreter, CMDKit, CMDKitBuilder, CMDKitError, CMDKitMaster, CoreConfig,
-    ExecutionHandle, HelpRenderer, InvocationArgs, InvocationElement, PlainTextArgumentInterpreter,
-    PlainTextHelpRenderer,
+    ExecutionContext, ExecutionHandle, HelpRenderer, InvocationArgs, InvocationElement,
+    PlainTextArgumentInterpreter, PlainTextHelpRenderer,
 };
 
 /// Runs a fresh default [`CMDKit`] instance with pre-built commands.

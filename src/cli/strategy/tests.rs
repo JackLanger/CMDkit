@@ -5,8 +5,8 @@ use super::{
     SubcommandRouter,
 };
 use crate::{
-    Command, InvocationArgs, StrategyError, StrategyErrorKind, SubcommandRouter as PublicRouter,
-    command,
+    Command, CoreConfig, InvocationArgs, StrategyError, StrategyErrorKind,
+    SubcommandRouter as PublicRouter, command,
 };
 
 fn invocation(params: Vec<String>) -> InvocationArgs {
@@ -20,15 +20,20 @@ fn invocation(params: Vec<String>) -> InvocationArgs {
     }
 }
 
+fn execution_context() -> crate::ExecutionContext {
+    CoreConfig::new().execution_context()
+}
+
 #[test]
 fn router_errors_when_subcommand_token_is_missing() {
     let router = SubcommandRouter::new().register(
         command("run", "run command")
-            .handler_fn(|_, _, _| Ok(()))
+            .handler_fn(|_, _| Ok(()))
             .build(),
     );
 
-    let result = router.execute(invocation(Vec::new()));
+    let context = execution_context();
+    let result = router.execute(&context, invocation(Vec::new()));
     match result {
         Err(err) => {
             assert_eq!(err.kind, StrategyErrorKind::InvalidArguments);
@@ -43,11 +48,12 @@ fn router_errors_when_subcommand_token_is_missing() {
 fn router_errors_when_subcommand_is_unknown() {
     let router = SubcommandRouter::new().register(
         command("run", "run command")
-            .handler_fn(|_, _, _| Ok(()))
+            .handler_fn(|_, _| Ok(()))
             .build(),
     );
 
-    let result = router.execute(invocation(vec!["ghost".to_string()]));
+    let context = execution_context();
+    let result = router.execute(&context, invocation(vec!["ghost".to_string()]));
     match result {
         Err(err) => {
             assert_eq!(err.kind, StrategyErrorKind::InvalidArguments);
@@ -65,7 +71,8 @@ fn router_resolves_alias_and_forwards_tail_params() {
 
     let subcommand = command("run", "run command")
         .with_aliases(vec!["r"])
-        .handler_fn(move |_, _, params| {
+        .handler_fn(move |_, invocation| {
+            let params = invocation.params;
             calls_for_handler
                 .lock()
                 .expect("calls lock should not be poisoned")
@@ -75,11 +82,15 @@ fn router_resolves_alias_and_forwards_tail_params() {
         .build();
 
     let router = SubcommandRouter::new().register(subcommand);
-    let result = router.execute(invocation(vec![
-        "r".to_string(),
-        "tail-1".to_string(),
-        "tail-2".to_string(),
-    ]));
+    let context = execution_context();
+    let result = router.execute(
+        &context,
+        invocation(vec![
+            "r".to_string(),
+            "tail-1".to_string(),
+            "tail-2".to_string(),
+        ]),
+    );
 
     assert!(result.is_ok());
     let guard = calls.lock().expect("calls lock should not be poisoned");
@@ -97,7 +108,8 @@ fn fallback_executes_primary_strategy_when_no_params_are_provided() {
     let child_calls_for_handler = Arc::clone(&child_calls);
 
     let fallback_strategy: Arc<dyn CommandStrategy> =
-        Arc::new(FunctionStrategy::new(move |_, _, params| {
+        Arc::new(FunctionStrategy::new(move |_, invocation| {
+            let params = invocation.params;
             fallback_calls_for_handler
                 .lock()
                 .expect("fallback lock should not be poisoned")
@@ -107,7 +119,8 @@ fn fallback_executes_primary_strategy_when_no_params_are_provided() {
 
     let router = PublicRouter::new().register(
         command("run", "run command")
-            .handler_fn(move |_, _, params| {
+            .handler_fn(move |_, invocation| {
+                let params = invocation.params;
                 child_calls_for_handler
                     .lock()
                     .expect("child lock should not be poisoned")
@@ -118,7 +131,8 @@ fn fallback_executes_primary_strategy_when_no_params_are_provided() {
     );
 
     let fallback = FallbackSubcommandStrategy::new(fallback_strategy, router);
-    let result = fallback.execute(invocation(Vec::new()));
+    let context = execution_context();
+    let result = fallback.execute(&context, invocation(Vec::new()));
 
     assert!(result.is_ok());
     assert_eq!(
@@ -144,7 +158,8 @@ fn fallback_routes_to_router_when_params_exist() {
     let child_calls_for_handler = Arc::clone(&child_calls);
 
     let fallback_strategy: Arc<dyn CommandStrategy> =
-        Arc::new(FunctionStrategy::new(move |_, _, params| {
+        Arc::new(FunctionStrategy::new(move |_, invocation| {
+            let params = invocation.params;
             fallback_calls_for_handler
                 .lock()
                 .expect("fallback lock should not be poisoned")
@@ -154,7 +169,8 @@ fn fallback_routes_to_router_when_params_exist() {
 
     let router = PublicRouter::new().register(
         command("run", "run command")
-            .handler_fn(move |_, _, params| {
+            .handler_fn(move |_, invocation| {
+                let params = invocation.params;
                 child_calls_for_handler
                     .lock()
                     .expect("child lock should not be poisoned")
@@ -165,7 +181,11 @@ fn fallback_routes_to_router_when_params_exist() {
     );
 
     let fallback = FallbackSubcommandStrategy::new(fallback_strategy, router);
-    let result = fallback.execute(invocation(vec!["run".to_string(), "tail".to_string()]));
+    let context = execution_context();
+    let result = fallback.execute(
+        &context,
+        invocation(vec!["run".to_string(), "tail".to_string()]),
+    );
 
     assert!(result.is_ok());
     assert!(
@@ -188,7 +208,11 @@ struct CatalogStrategy {
 }
 
 impl CommandStrategy for CatalogStrategy {
-    fn execute(&self, _invocation: InvocationArgs) -> Result<(), StrategyError> {
+    fn execute(
+        &self,
+        _context: &crate::ExecutionContext,
+        _invocation: InvocationArgs,
+    ) -> Result<(), StrategyError> {
         Ok(())
     }
 
@@ -212,12 +236,12 @@ fn fallback_catalog_merges_router_and_fallback_without_duplicate_names() {
     let router = PublicRouter::new()
         .register(
             command("shared", "router shared")
-                .handler_fn(|_, _, _| Ok(()))
+                .handler_fn(|_, _| Ok(()))
                 .build(),
         )
         .register(
             command("router-only", "router only")
-                .handler_fn(|_, _, _| Ok(()))
+                .handler_fn(|_, _| Ok(()))
                 .build(),
         );
 
@@ -225,10 +249,10 @@ fn fallback_catalog_merges_router_and_fallback_without_duplicate_names() {
         catalog: CatalogOnly {
             commands: vec![
                 command("shared", "fallback shared")
-                    .handler_fn(|_, _, _| Ok(()))
+                    .handler_fn(|_, _| Ok(()))
                     .build(),
                 command("fallback-only", "fallback only")
-                    .handler_fn(|_, _, _| Ok(()))
+                    .handler_fn(|_, _| Ok(()))
                     .build(),
             ],
         },

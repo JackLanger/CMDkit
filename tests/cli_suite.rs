@@ -13,14 +13,22 @@ fn unique_name(prefix: &str) -> String {
 }
 
 impl CommandStrategy for TestStrategy {
-    fn execute(&self, _invocation: InvocationArgs) -> Result<(), StrategyError> {
+    fn execute(
+        &self,
+        _context: &cmdkit::ExecutionContext,
+        _invocation: InvocationArgs,
+    ) -> Result<(), StrategyError> {
         println!("Test strategy executed");
         Ok(())
     }
 }
 
 impl CommandStrategy for TestStrategyV2 {
-    fn execute(&self, _invocation: InvocationArgs) -> Result<(), StrategyError> {
+    fn execute(
+        &self,
+        _context: &cmdkit::ExecutionContext,
+        _invocation: InvocationArgs,
+    ) -> Result<(), StrategyError> {
         println!("Test strategy v2 executed");
         Ok(())
     }

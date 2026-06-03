@@ -1,5 +1,4 @@
-use crate::Argument;
-use crate::core::{InvocationArgs, InvocationElement};
+use crate::core::{ExecutionContext, InvocationArgs, InvocationElement};
 use std::{collections::BTreeMap, sync::Arc};
 
 use super::{Command, StrategyError};
@@ -14,7 +13,11 @@ pub trait SubcommandCatalog {
 pub trait CommandStrategy: Send + Sync {
     /// Executes the strategy with parsed invocation data.
     /// Strategy implementations should validate argument viability internally.
-    fn execute(&self, invocation: InvocationArgs) -> Result<(), StrategyError>;
+    fn execute(
+        &self,
+        context: &ExecutionContext,
+        invocation: InvocationArgs,
+    ) -> Result<(), StrategyError>;
 
     /// Optional catalog exposure used by help renderers to discover nested command trees.
     fn subcommand_catalog(&self) -> Option<&dyn SubcommandCatalog> {
@@ -25,14 +28,14 @@ pub trait CommandStrategy: Send + Sync {
 /// Adapter that turns a function or closure into a [`CommandStrategy`].
 pub struct FunctionStrategy<F>
 where
-    F: Fn(Vec<String>, Vec<Argument>, Vec<String>) -> Result<(), StrategyError> + Send + Sync,
+    F: Fn(&ExecutionContext, InvocationArgs) -> Result<(), StrategyError> + Send + Sync,
 {
     runner: F,
 }
 
 impl<F> FunctionStrategy<F>
 where
-    F: Fn(Vec<String>, Vec<Argument>, Vec<String>) -> Result<(), StrategyError> + Send + Sync,
+    F: Fn(&ExecutionContext, InvocationArgs) -> Result<(), StrategyError> + Send + Sync,
 {
     pub fn new(runner: F) -> Self {
         Self { runner }
@@ -41,10 +44,14 @@ where
 
 impl<F> CommandStrategy for FunctionStrategy<F>
 where
-    F: Fn(Vec<String>, Vec<Argument>, Vec<String>) -> Result<(), StrategyError> + Send + Sync,
+    F: Fn(&ExecutionContext, InvocationArgs) -> Result<(), StrategyError> + Send + Sync,
 {
-    fn execute(&self, invocation: InvocationArgs) -> Result<(), StrategyError> {
-        (self.runner)(invocation.switches, invocation.args, invocation.params)
+    fn execute(
+        &self,
+        context: &ExecutionContext,
+        invocation: InvocationArgs,
+    ) -> Result<(), StrategyError> {
+        (self.runner)(context, invocation)
     }
 }
 
@@ -107,7 +114,11 @@ impl SubcommandCatalog for SubcommandRouter {
 }
 
 impl CommandStrategy for SubcommandRouter {
-    fn execute(&self, invocation: InvocationArgs) -> Result<(), StrategyError> {
+    fn execute(
+        &self,
+        context: &ExecutionContext,
+        invocation: InvocationArgs,
+    ) -> Result<(), StrategyError> {
         let Some(subcommand_name) = invocation.params.first() else {
             return Err(StrategyError::invalid_arguments(format!(
                 "missing subcommand. available: {}",
@@ -122,18 +133,21 @@ impl CommandStrategy for SubcommandRouter {
             ))
         })?;
 
-        command.execute(InvocationArgs {
-            name: command.metadata.name.clone(),
-            args: Vec::new(),
-            switches: Vec::new(),
-            params: invocation.params[1..].to_vec(),
-            order: invocation.params[1..]
-                .iter()
-                .cloned()
-                .map(InvocationElement::Param)
-                .collect(),
-            subcommand: None,
-        })
+        command.execute(
+            context,
+            InvocationArgs {
+                name: command.metadata.name.clone(),
+                args: Vec::new(),
+                switches: Vec::new(),
+                params: invocation.params[1..].to_vec(),
+                order: invocation.params[1..]
+                    .iter()
+                    .cloned()
+                    .map(InvocationElement::Param)
+                    .collect(),
+                subcommand: None,
+            },
+        )
     }
 
     fn subcommand_catalog(&self) -> Option<&dyn SubcommandCatalog> {
@@ -153,11 +167,15 @@ impl FallbackSubcommandStrategy {
 }
 
 impl CommandStrategy for FallbackSubcommandStrategy {
-    fn execute(&self, invocation: InvocationArgs) -> Result<(), StrategyError> {
+    fn execute(
+        &self,
+        context: &ExecutionContext,
+        invocation: InvocationArgs,
+    ) -> Result<(), StrategyError> {
         if invocation.params.is_empty() {
-            return self.strategy.execute(invocation);
+            return self.strategy.execute(context, invocation);
         }
-        self.router.execute(invocation)
+        self.router.execute(context, invocation)
     }
 
     fn subcommand_catalog(&self) -> Option<&dyn SubcommandCatalog> {

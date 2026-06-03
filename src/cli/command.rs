@@ -1,4 +1,4 @@
-use crate::core::InvocationArgs;
+use crate::core::{ExecutionContext, InvocationArgs};
 use std::fmt::Debug;
 use std::{option::Option, sync::Arc};
 
@@ -207,7 +207,11 @@ impl Command {
         }
     }
 
-    pub(crate) fn execute(&self, mut invocation: InvocationArgs) -> Result<(), StrategyError> {
+    pub(crate) fn execute(
+        &self,
+        context: &ExecutionContext,
+        mut invocation: InvocationArgs,
+    ) -> Result<(), StrategyError> {
         match invocation.subcommand.take() {
             Some(subcommand) => self
                 .resolve_subcommand(&subcommand.name)
@@ -217,8 +221,8 @@ impl Command {
                         subcommand.name
                     ))
                 })?
-                .execute(*subcommand),
-            None => self.strategy.execute(invocation),
+                .execute(context, *subcommand),
+            None => self.strategy.execute(context, invocation),
         }
     }
 
@@ -230,12 +234,27 @@ impl Command {
     /// Creates a command specification directly from a function or closure handler.
     pub fn from_fn<F>(name: impl Into<String>, description: impl Into<String>, runner: F) -> Self
     where
-        F: Fn(Vec<String>, Vec<Argument>, Vec<String>) -> Result<(), StrategyError>
+        F: Fn(&ExecutionContext, InvocationArgs) -> Result<(), StrategyError>
             + Send
             + Sync
             + 'static,
     {
         Self::new(name, description, FunctionStrategy::new(runner))
+    }
+
+    /// Alias for [`Command::from_fn`] kept for compatibility.
+    pub fn from_fn_with_context<F>(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        runner: F,
+    ) -> Self
+    where
+        F: Fn(&ExecutionContext, InvocationArgs) -> Result<(), StrategyError>
+            + Send
+            + Sync
+            + 'static,
+    {
+        Self::from_fn(name, description, runner)
     }
 
     /// Creates a fluent command builder.
@@ -304,7 +323,19 @@ impl CommandBuilder {
     /// Sets command strategy using a function/closure.
     pub fn handler_fn<F>(mut self, runner: F) -> Self
     where
-        F: Fn(Vec<String>, Vec<Argument>, Vec<String>) -> Result<(), StrategyError>
+        F: Fn(&ExecutionContext, InvocationArgs) -> Result<(), StrategyError>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.strategy = Some(Arc::new(FunctionStrategy::new(runner)));
+        self
+    }
+
+    /// Alias for [`CommandBuilder::handler_fn`] kept for compatibility.
+    pub fn handler_fn_with_context<F>(mut self, runner: F) -> Self
+    where
+        F: Fn(&ExecutionContext, InvocationArgs) -> Result<(), StrategyError>
             + Send
             + Sync
             + 'static,
@@ -365,7 +396,7 @@ impl CommandBuilder {
     pub fn build(self) -> Command {
         let strategy: Arc<dyn CommandStrategy> = if self.subcommands.is_empty() {
             self.strategy.unwrap_or_else(|| {
-                Arc::new(FunctionStrategy::new(|_, _, _| {
+                Arc::new(FunctionStrategy::new(|_, _| {
                     Err(StrategyError::internal(
                         "command has no handler; configure a handler or subcommand",
                     ))

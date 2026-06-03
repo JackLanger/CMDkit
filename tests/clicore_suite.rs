@@ -13,7 +13,11 @@ struct RecorderStrategy {
 }
 
 impl CommandStrategy for RecorderStrategy {
-    fn execute(&self, invocation: InvocationArgs) -> Result<(), StrategyError> {
+    fn execute(
+        &self,
+        _context: &cmdkit::ExecutionContext,
+        invocation: InvocationArgs,
+    ) -> Result<(), StrategyError> {
         let mut guard = self.calls.lock().expect("call log lock poisoned");
         guard.push((invocation.switches, invocation.args, invocation.params));
 
@@ -127,7 +131,10 @@ fn nested_subcommand_alias_invocation_succeeds() {
                 .subcommand(
                     command("run", "run command")
                         .with_aliases(vec!["r"])
-                        .handler_fn(move |options, arguments, params| {
+                        .handler_fn(move |_, invocation| {
+                            let options = invocation.switches;
+                            let arguments = invocation.args;
+                            let params = invocation.params;
                             let mut guard =
                                 calls_for_strategy.lock().expect("call log lock poisoned");
                             guard.push((options, arguments, params));
@@ -149,16 +156,12 @@ fn nested_subcommand_alias_invocation_succeeds() {
 #[test]
 fn registration_rejects_alias_conflicting_with_existing_command_name() {
     let result = CMDKit::builder()
-        .try_register(
-            command("build", "build")
-                .handler_fn(|_, _, _| Ok(()))
-                .build(),
-        )
+        .try_register(command("build", "build").handler_fn(|_, _| Ok(())).build())
         .and_then(|builder| {
             builder.try_register(
                 command("deploy", "deploy")
                     .with_aliases(vec!["build"])
-                    .handler_fn(|_, _, _| Ok(()))
+                    .handler_fn(|_, _| Ok(()))
                     .build(),
             )
         });
@@ -177,14 +180,14 @@ fn registration_rejects_alias_conflicting_with_existing_alias() {
         .try_register(
             command("build", "build")
                 .with_aliases(vec!["b"])
-                .handler_fn(|_, _, _| Ok(()))
+                .handler_fn(|_, _| Ok(()))
                 .build(),
         )
         .and_then(|builder| {
             builder.try_register(
                 command("bundle", "bundle")
                     .with_aliases(vec!["b"])
-                    .handler_fn(|_, _, _| Ok(()))
+                    .handler_fn(|_, _| Ok(()))
                     .build(),
             )
         });
@@ -203,11 +206,11 @@ fn registration_rejects_command_name_conflicting_with_existing_alias() {
         .try_register(
             command("build", "build")
                 .with_aliases(vec!["b"])
-                .handler_fn(|_, _, _| Ok(()))
+                .handler_fn(|_, _| Ok(()))
                 .build(),
         )
         .and_then(|builder| {
-            builder.try_register(command("b", "b cmd").handler_fn(|_, _, _| Ok(())).build())
+            builder.try_register(command("b", "b cmd").handler_fn(|_, _| Ok(())).build())
         });
 
     match result {
@@ -224,11 +227,11 @@ fn registration_rejects_command_name_conflicting_with_existing_alias() {
 fn bulk_registration_rejects_collisions() {
     let cmd_a = command("build", "build")
         .with_aliases(vec!["b"])
-        .handler_fn(|_, _, _| Ok(()))
+        .handler_fn(|_, _| Ok(()))
         .build();
     let cmd_b = command("bundle", "bundle")
         .with_aliases(vec!["b"])
-        .handler_fn(|_, _, _| Ok(()))
+        .handler_fn(|_, _| Ok(()))
         .build();
 
     let result = CMDKit::builder().try_with_commands(&[cmd_a, cmd_b]);
@@ -319,7 +322,10 @@ fn functionality_from_fn_supports_function_based_strategy_registration() {
     let core = CMDKit::builder()
         .register(
             command("fncmd", "defined from a function")
-                .handler_fn(move |options, arguments, params| {
+                .handler_fn(move |_, invocation| {
+                    let options = invocation.switches;
+                    let arguments = invocation.args;
+                    let params = invocation.params;
                     let mut guard = calls_for_strategy.lock().expect("call log lock poisoned");
                     guard.push((options, arguments, params));
                     Ok(())
@@ -544,7 +550,10 @@ fn interpreter_accepts_argument_aliases_and_uses_last_value_wins() {
     let core = CMDKit::builder()
         .register(
             command("alias", "alias command")
-                .handler_fn(move |options, arguments, params| {
+                .handler_fn(move |_, invocation| {
+                    let options = invocation.switches;
+                    let arguments = invocation.args;
+                    let params = invocation.params;
                     let mut guard = calls_for_strategy.lock().expect("call log lock poisoned");
                     guard.push((options, arguments, params));
                     Ok(())
@@ -748,7 +757,7 @@ fn plain_text_interpreter_resolves_aliases_to_canonical_typed_metadata() {
             switch("verbose", "verbose output").with_aliases(vec!["v".to_string()]),
         ])
         .with_arguments(vec![argument("path", "path value").with_aliases(vec!["p"])])
-        .handler_fn(|_, _, _| Ok(()))
+        .handler_fn(|_, _| Ok(()))
         .build();
 
     let invocation = interpreter
@@ -785,7 +794,7 @@ fn plain_text_interpreter_moves_repeated_argument_to_latest_position() {
             argument("path", "path value"),
             argument("mode", "mode value"),
         ])
-        .handler_fn(|_, _, _| Ok(()))
+        .handler_fn(|_, _| Ok(()))
         .build();
 
     let invocation = interpreter
@@ -856,10 +865,10 @@ fn plain_text_interpreter_preserves_typed_argument_order() {
             command("child", "child command")
                 .with_options(vec![switch("force", "force switch")])
                 .with_arguments(vec![argument("mode", "mode value")])
-                .handler_fn(|_, _, _| Ok(()))
+                .handler_fn(|_, _| Ok(()))
                 .build(),
         )
-        .handler_fn(|_, _, _| Ok(()))
+        .handler_fn(|_, _| Ok(()))
         .build();
 
     let invocation = interpreter
@@ -912,7 +921,10 @@ fn subcommand_router_dispatches_recursively_to_deep_children() {
     let deep_calls_for_leaf = Arc::clone(&deep_calls);
 
     let deep_leaf = command("leaf", "deep leaf")
-        .handler_fn(move |options, arguments, params| {
+        .handler_fn(move |_, invocation| {
+            let options = invocation.switches;
+            let arguments = invocation.args;
+            let params = invocation.params;
             deep_calls_for_leaf
                 .lock()
                 .expect("call log lock poisoned")
@@ -965,7 +977,10 @@ fn subcommand_boundary_defers_flag_parsing_to_child_command() {
     let child_calls_for_strategy = Arc::clone(&child_calls);
 
     let run = command("run", "run command")
-        .handler_fn(move |options, arguments, params| {
+        .handler_fn(move |_, invocation| {
+            let options = invocation.switches;
+            let arguments = invocation.args;
+            let params = invocation.params;
             child_calls_for_strategy
                 .lock()
                 .expect("call log lock poisoned")
@@ -998,7 +1013,7 @@ fn subcommand_boundary_defers_flag_parsing_to_child_command() {
 #[test]
 fn positional_tokens_before_subcommand_boundary_remain_current_level_params() {
     let run = command("run", "run command")
-        .handler_fn(|_, _, _| Ok(()))
+        .handler_fn(|_, _| Ok(()))
         .build();
     let root = Command::new("tool", "tool root", SubcommandRouter::new().register(run));
     let core = CMDKit::builder().register(root).build();
@@ -1028,11 +1043,8 @@ fn help_renderer_includes_recursive_subcommands_from_router_catalog() {
         SubcommandRouter::new().register(Command::new(
             "child",
             "child command",
-            SubcommandRouter::new().register(Command::from_fn(
-                "leaf",
-                "leaf command",
-                |_, _, _| Ok(()),
-            )),
+            SubcommandRouter::new()
+                .register(Command::from_fn("leaf", "leaf command", |_, _| Ok(()))),
         )),
     );
 
@@ -1053,18 +1065,19 @@ fn help_renderer_includes_recursive_subcommands_from_router_catalog() {
 
 #[test]
 fn help_renderer_includes_nested_catalogs_hidden_by_fallback_wrappers() {
-    let root = command("tool", "tool root")
-        .handler(SubcommandRouter::new().register(Command::new(
-            "inner",
-            "inner branch",
-            SubcommandRouter::new().register(Command::from_fn(
-                "leaf",
-                "leaf command",
-                |_, _, _| Ok(()),
-            )),
-        )))
-        .subcommand(command("outer", "outer command").handler_fn(|_, _, _| Ok(())))
-        .build();
+    let root =
+        command("tool", "tool root")
+            .handler(SubcommandRouter::new().register(Command::new(
+                "inner",
+                "inner branch",
+                SubcommandRouter::new().register(Command::from_fn(
+                    "leaf",
+                    "leaf command",
+                    |_, _| Ok(()),
+                )),
+            )))
+            .subcommand(command("outer", "outer command").handler_fn(|_, _| Ok(())))
+            .build();
 
     let core = CMDKit::builder().register(root).build();
 
@@ -1084,7 +1097,7 @@ fn help_renderer_includes_nested_catalogs_hidden_by_fallback_wrappers() {
 #[test]
 fn help_renderer_includes_optional_metadata_fields() {
     let cmd = command("build", "Build a project")
-        .handler_fn(|_, _, _| Ok(()))
+        .handler_fn(|_, _| Ok(()))
         .with_aliases(vec!["b", "compile"])
         .with_usage("build --path <dir> [--release]")
         .with_long_description("Builds the project artifacts for distribution")

@@ -8,11 +8,11 @@ use std::{
 use futures_channel::oneshot;
 
 use crate::cli::ValueType;
+use crate::core::logging::LogLevel;
 use crate::{
     Argument, ArgumentDefinition, ArgumentValue, Command, StrategyError, SwitchDefinition,
     cli::CommandCatalogue,
 };
-use crate::core::logging::LogLevel;
 
 pub mod logging {
 
@@ -26,32 +26,40 @@ pub mod logging {
     }
     pub trait LogSink: Send + Sync {
         fn log(&self, level: LogLevel, message: &str);
-        fn info(&self, message: &str)  { self.log(LogLevel::Info, message); }
-        fn warn(&self, message: &str)  { self.log(LogLevel::Warn, message); }
-        fn error(&self, message: &str) { self.log(LogLevel::Error, message); }
-        fn debug(&self, message: &str) { self.log(LogLevel::Debug, message); }
+        fn info(&self, message: &str) {
+            self.log(LogLevel::Info, message);
+        }
+        fn warn(&self, message: &str) {
+            self.log(LogLevel::Warn, message);
+        }
+        fn error(&self, message: &str) {
+            self.log(LogLevel::Error, message);
+        }
+        fn debug(&self, message: &str) {
+            self.log(LogLevel::Debug, message);
+        }
     }
-
 
     pub struct ConsoleLogSink {
         verbosity: LogLevel,
     }
 
     impl ConsoleLogSink {
-        pub fn new(verbosity: LogLevel) -> Self{
-            Self{
-                verbosity
-            }
+        pub fn new(verbosity: LogLevel) -> Self {
+            Self { verbosity }
         }
     }
     impl LogSink for ConsoleLogSink {
         fn log(&self, level: LogLevel, message: &str) {
-
             match level {
                 // always print errors
-                LogLevel::Error =>  eprintln!("{}", message),
+                LogLevel::Error => eprintln!("{}", message),
                 // print only if loglevel is higher or equal to loglevel set in log sink
-                _ => if self.verbosity as u8 - level as u8 <= 0 { println!("{}", message) }
+                _ => {
+                    if self.verbosity as u8 - level as u8 <= 0 {
+                        println!("{}", message)
+                    }
+                }
             }
         }
     }
@@ -94,6 +102,11 @@ pub trait ArgumentInterpreter: Send + Sync {
         arg: &[String],
         registered_commands: &[&Command],
     ) -> Result<InvocationArgs, CMDKitError>;
+}
+
+#[derive(Clone)]
+pub struct ExecutionContext {
+    pub logger: Arc<dyn logging::LogSink>,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -141,7 +154,9 @@ impl PlainTextArgumentInterpreter {
         arguments: &[Argument],
     ) -> Result<(), CMDKitError> {
         for required in command.metadata.arguments.iter().filter(|arg| arg.required) {
-            let value = arguments.iter().find(|argument| argument.name == required.name);
+            let value = arguments
+                .iter()
+                .find(|argument| argument.name == required.name);
 
             if value.is_none() {
                 return Err(Self::invalid_arguments(
@@ -206,8 +221,10 @@ impl PlainTextArgumentInterpreter {
                         index += 1;
                         continue;
                     }
-                    let argument =
-                        Self::convert_to_argument_value(declared_argument, &inline_value.to_string());
+                    let argument = Self::convert_to_argument_value(
+                        declared_argument,
+                        &inline_value.to_string(),
+                    );
                     let order_arg = argument.clone();
                     Self::upsert_argument(&mut arguments, argument);
                     order.push(InvocationElement::Argument(order_arg));
@@ -231,7 +248,10 @@ impl PlainTextArgumentInterpreter {
             if let Some(declared_argument) = Self::find_declared_argument(command, flag) {
                 let Some(argument_value) = args.get(index + 1) else {
                     let msg = if declared_argument.required {
-                        format!("missing value for required argument '--{}'", declared_argument.name)
+                        format!(
+                            "missing value for required argument '--{}'",
+                            declared_argument.name
+                        )
                     } else {
                         format!("missing value for argument '--{}'", declared_argument.name)
                     };
@@ -243,7 +263,10 @@ impl PlainTextArgumentInterpreter {
                     || command.resolve_subcommand(argument_value).is_some()
                 {
                     let msg = if declared_argument.required {
-                        format!("missing value for required argument '--{}'", declared_argument.name)
+                        format!(
+                            "missing value for required argument '--{}'",
+                            declared_argument.name
+                        )
                     } else {
                         format!("missing value for argument '--{}'", declared_argument.name)
                     };
@@ -428,7 +451,7 @@ impl HelpRenderer for PlainTextHelpRenderer {
 pub struct CoreConfig {
     pub help_renderer: Arc<dyn HelpRenderer>,
     pub argument_interpreter: Arc<dyn ArgumentInterpreter>,
-    pub logger : Arc<dyn logging::LogSink>
+    pub logger: Arc<dyn logging::LogSink>,
 }
 
 impl CoreConfig {
@@ -437,8 +460,22 @@ impl CoreConfig {
         Self {
             help_renderer: Arc::new(PlainTextHelpRenderer),
             argument_interpreter: Arc::new(PlainTextArgumentInterpreter),
-            logger : Arc::new(logging::ConsoleLogSink::new(LogLevel::Info))
+            logger: Arc::new(logging::ConsoleLogSink::new(LogLevel::Info)),
         }
+    }
+
+    pub fn execution_context(&self) -> ExecutionContext {
+        ExecutionContext {
+            logger: Arc::clone(&self.logger),
+        }
+    }
+
+    pub fn with_logger<L>(mut self, logger: L) -> Self
+    where
+        L: logging::LogSink + 'static,
+    {
+        self.logger = Arc::new(logger);
+        self
     }
 
     /// Replaces the help renderer in a builder-friendly way.
@@ -603,7 +640,7 @@ impl CMDKit {
         let command_name = invocation.leaf_name().to_string();
 
         command
-            .execute(invocation)
+            .execute(&self.config.execution_context(), invocation)
             .map_err(|source| CMDKitError::StrategyExecution {
                 command: command_name,
                 source,
