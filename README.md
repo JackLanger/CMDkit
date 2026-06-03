@@ -269,4 +269,4 @@ fn run_embedded(args: Vec<String>) -> Result<(), CliCoreError> {
 
 ## License
 
-This project is licensed under GPL-3.0-or-later.
+This project is licensed under Apache-2.0. See [LICENSE](LICENSE) for details.
