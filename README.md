@@ -19,7 +19,7 @@ cargo add cmdkit
 ## Highlights
 
 - Register commands with `Command::new(...)` or fluent `command(...).build()`.
-- Attach handlers as structs (`CommandStrategy`) or closures (`handler_fn` / `Command::from_fn`).
+- Attach handlers as structs (`CommandStrategy`) or closures (`handler_fn` / `handler_fn_with_context` / `Command::from_fn` / `Command::from_fn_with_context`), all using `(&ExecutionContext, InvocationArgs)`.
 - Compose nested command hierarchies with subcommands.
 - Parse command input into three channels:
     - `options: Vec<Switch>` for switch/flag inputs
@@ -63,6 +63,7 @@ Invariants:
 - `command(name, description)` fluent builder:
   - `.handler(...)`
   - `.handler_fn(...)`
+  - `.handler_fn_with_context(...)`
   - `.subcommand(...)`
   - `.with_usage(...)`
   - `.with_long_description(...)`
@@ -89,7 +90,11 @@ use cmdkit::{argument, command, switch, CMDKit, CommandStrategy, InvocationArgs,
 struct CreateProject;
 
 impl CommandStrategy for CreateProject {
-    fn execute(&self, invocation: InvocationArgs) -> Result<(), StrategyError> {
+    fn execute(
+        &self,
+        _context: &cmdkit::ExecutionContext,
+        invocation: InvocationArgs,
+    ) -> Result<(), StrategyError> {
         let options = invocation.switches;
         let arguments = invocation.args;
 
@@ -143,16 +148,20 @@ fn main () {
         .register(
             command("project", "Project commands")
                 .subcommand(
-                    command("create", "Create a project").handler_fn(|options, arguments, _| {
+                    command("create", "Create a project").handler_fn(|_, invocation| {
+                        let options = invocation.switches;
+                        let arguments = invocation.args;
                         println!("options={options:?} arguments={arguments:?}");
                         Ok(())
                     }),
                 )
                 .subcommand(
-                    command("delete", "Delete a project").handler_fn(|_, arguments, params| {
+                    command("delete", "Delete a project").handler_fn(|_, invocation| {
+                        let arguments = invocation.args;
+                        let params = invocation.params;
                         println!("arguments={arguments:?} params={params:?}");
                         Ok(())
-                      }),
+                       }),
                     )
                     .build(),
           ).build();
@@ -161,6 +170,36 @@ fn main () {
 ```
 
 Routing commands forward execution to leaf commands. The selected leaf strategy receives parsed input.
+
+## Logger Access in Strategies
+
+Strategies receive an `ExecutionContext` during execution and can use the configured logger without globals.
+
+```rust
+use cmdkit::{command, CoreConfig, ExecutionContext, LogLevel, LogSink, StrategyError};
+
+struct StdoutLogger;
+impl LogSink for StdoutLogger {
+    fn log(&self, level: LogLevel, message: &str) {
+        println!("[{level:?}] {message}");
+    }
+}
+
+fn main() {
+  let core = cmdkit::CMDKit::builder()
+          .with_config(CoreConfig::new().with_logger(StdoutLogger))
+          .register(
+            command("run", "run command").handler_fn_with_context(
+              |ctx: &ExecutionContext, _invocation| {
+                ctx.logger.info("run called");
+                Ok::<(), StrategyError>(())
+              },
+            ).build(),
+          )
+          .build();  
+}
+
+```
 
 ## Parser Behavior
 

@@ -115,7 +115,8 @@ fn builder_argument_interpreter_can_drive_with_commands_registration() {
     let calls_for_handler = Arc::clone(&calls);
 
     let cmd = command("echo", "echo command")
-        .handler_fn(move |_switches, arguments, _params| {
+        .handler_fn(move |_, invocation| {
+            let arguments = invocation.args;
             let value: String = match &arguments
                 .iter()
                 .find(|arg| arg.name == "path")
@@ -168,7 +169,8 @@ fn cmdkit_master_executes_command_and_returns_success_handle() {
     let calls: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let calls_for_handler = Arc::clone(&calls);
 
-    let cmd = command("echo", "echo command").handler_fn(move |_sw, _args, params| {
+    let cmd = command("echo", "echo command").handler_fn(move |_, invocation| {
+        let params = invocation.params;
         calls_for_handler
             .lock()
             .expect("calls lock should not be poisoned")
@@ -226,7 +228,7 @@ fn cmdkit_master_normalizes_zero_worker_count() {
     let calls: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let calls_for_handler = Arc::clone(&calls);
 
-    let cmd = command("ping", "ping command").handler_fn(move |_sw, _args, _params| {
+    let cmd = command("ping", "ping command").handler_fn(move |_, _| {
         calls_for_handler
             .lock()
             .expect("calls lock should not be poisoned")

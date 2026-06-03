@@ -30,7 +30,10 @@ fn strategy_chain_handles_subtask_tokens() {
     let core = CMDKit::builder()
         .register(
             command("parent", "Parent command")
-                .handler_fn(move |options, arguments, params| {
+                .handler_fn(move |_, invocation| {
+                    let options = invocation.switches;
+                    let arguments = invocation.args;
+                    let params = invocation.params;
                     let mut guard = captured_for_strategy
                         .lock()
                         .expect("capture lock should not be poisoned");
@@ -73,7 +76,10 @@ fn command_builder_registers_leaf_command_without_exposing_strategy_types() {
     let core = CMDKit::builder()
         .register(
             command("echo", "Echo command")
-                .handler_fn(move |options, arguments, params| {
+                .handler_fn(move |_, invocation| {
+                    let options = invocation.switches;
+                    let arguments = invocation.args;
+                    let params = invocation.params;
                     captured_for_handler
                         .lock()
                         .expect("capture lock should not be poisoned")
@@ -116,7 +122,10 @@ fn command_builder_registers_recursive_subcommands_without_router_exposure() {
                 .subcommand(
                     command("run", "run tasks").subcommand(
                         command("one", "run one task")
-                            .handler_fn(move |options, arguments, params| {
+                            .handler_fn(move |_, invocation| {
+                                let options = invocation.switches;
+                                let arguments = invocation.args;
+                                let params = invocation.params;
                                 captured_for_handler
                                     .lock()
                                     .expect("capture lock should not be poisoned")

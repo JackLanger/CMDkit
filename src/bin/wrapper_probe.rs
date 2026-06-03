@@ -3,7 +3,11 @@ use cmdkit::{CMDKit, Command, CommandStrategy, StrategyError, core::InvocationAr
 struct ProbeStrategy;
 
 impl CommandStrategy for ProbeStrategy {
-    fn execute(&self, _invocation: InvocationArgs) -> Result<(), StrategyError> {
+    fn execute(
+        &self,
+        _context: &cmdkit::ExecutionContext,
+        _invocation: InvocationArgs,
+    ) -> Result<(), StrategyError> {
         Ok(())
     }
 }
