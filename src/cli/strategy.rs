@@ -16,9 +16,7 @@ pub trait CommandStrategy: Send + Sync {
     /// Strategy implementations should validate argument viability internally.
     fn execute(
         &self,
-        options: Vec<Switch>,
-        arguments: Vec<Argument>,
-        params: Vec<String>,
+        invocation : InvocationArgs,
     ) -> Result<(), StrategyError>;
 
     /// Optional catalog exposure used by help renderers to discover nested command trees.
@@ -50,11 +48,9 @@ where
 {
     fn execute(
         &self,
-        options: Vec<Switch>,
-        arguments: Vec<Argument>,
-        params: Vec<String>,
+        invocation : InvocationArgs,
     ) -> Result<(), StrategyError> {
-        (self.runner)(options, arguments, params)
+        (self.runner)(invocation.switches, invocation.args, invocation.params)
     }
 }
 
@@ -119,11 +115,9 @@ impl SubcommandCatalog for SubcommandRouter {
 impl CommandStrategy for SubcommandRouter {
     fn execute(
         &self,
-        _options: Vec<Switch>,
-        _arguments: Vec<Argument>,
-        params: Vec<String>,
+        invocation : InvocationArgs,
     ) -> Result<(), StrategyError> {
-        let Some(subcommand_name) = params.first() else {
+        let Some(subcommand_name) = invocation.params.first() else {
             return Err(StrategyError::invalid_arguments(format!(
                 "missing subcommand. available: {}",
                 self.available_subcommands()
@@ -137,12 +131,12 @@ impl CommandStrategy for SubcommandRouter {
             ))
         })?;
 
-        command.execute(&InvocationArgs {
+        command.execute(InvocationArgs {
             name: command.metadata.name.clone(),
             args: Vec::new(),
             switches: Vec::new(),
-            params: params[1..].to_vec(),
-            order: params[1..]
+            params: invocation.params[1..].to_vec(),
+            order: invocation.params[1..]
                 .iter()
                 .cloned()
                 .map(InvocationElement::Param)
@@ -170,14 +164,12 @@ impl FallbackSubcommandStrategy {
 impl CommandStrategy for FallbackSubcommandStrategy {
     fn execute(
         &self,
-        options: Vec<Switch>,
-        arguments: Vec<Argument>,
-        params: Vec<String>,
+        invocation : InvocationArgs,
     ) -> Result<(), StrategyError> {
-        if params.is_empty() {
-            return self.strategy.execute(options, arguments, params);
+        if invocation.params.is_empty() {
+            return self.strategy.execute(invocation);
         }
-        self.router.execute(options, arguments, params)
+        self.router.execute(invocation)
     }
 
     fn subcommand_catalog(&self) -> Option<&dyn SubcommandCatalog> {

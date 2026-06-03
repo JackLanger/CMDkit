@@ -2,7 +2,8 @@ use std::sync::{Arc, Mutex};
 
 use cmdkit::{
     Argument, ArgumentInterpreter, CMDKit, CMDKitError, Command, CommandStrategy,
-    InvocationElement, PlainTextArgumentInterpreter, StrategyError, StrategyErrorKind,
+    InvocationArgs, InvocationElement, PlainTextArgumentInterpreter, StrategyError,
+    StrategyErrorKind,
     SubcommandRouter, Switch, argument, command, switch,
 };
 type CallLog = Arc<Mutex<Vec<(Vec<Switch>, Vec<Argument>, Vec<String>)>>>;
@@ -13,14 +14,9 @@ struct RecorderStrategy {
 }
 
 impl CommandStrategy for RecorderStrategy {
-    fn execute(
-        &self,
-        options: Vec<Switch>,
-        arguments: Vec<Argument>,
-        params: Vec<String>,
-    ) -> Result<(), StrategyError> {
+    fn execute(&self, invocation: InvocationArgs) -> Result<(), StrategyError> {
         let mut guard = self.calls.lock().expect("call log lock poisoned");
-        guard.push((options, arguments, params));
+        guard.push((invocation.switches, invocation.args, invocation.params));
 
         if let Some(err) = &self.error {
             return Err(err.clone());

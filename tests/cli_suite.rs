@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use cmdkit::{Argument, CMDKit, Command, CommandStrategy, StrategyError, Switch};
+use cmdkit::{CMDKit, Command, CommandStrategy, StrategyError, core::InvocationArgs};
 
 struct TestStrategy;
 struct TestStrategyV2;
@@ -13,24 +13,14 @@ fn unique_name(prefix: &str) -> String {
 }
 
 impl CommandStrategy for TestStrategy {
-    fn execute(
-        &self,
-        _options: Vec<Switch>,
-        _arguments: Vec<Argument>,
-        _params: Vec<String>,
-    ) -> Result<(), StrategyError> {
+    fn execute(&self, _invocation: InvocationArgs) -> Result<(), StrategyError> {
         println!("Test strategy executed");
         Ok(())
     }
 }
 
 impl CommandStrategy for TestStrategyV2 {
-    fn execute(
-        &self,
-        _options: Vec<Switch>,
-        _arguments: Vec<Argument>,
-        _params: Vec<String>,
-    ) -> Result<(), StrategyError> {
+    fn execute(&self, _invocation: InvocationArgs) -> Result<(), StrategyError> {
         println!("Test strategy v2 executed");
         Ok(())
     }

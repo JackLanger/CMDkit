@@ -1,5 +1,4 @@
 use std::{option::Option, sync::Arc};
-
 use crate::core::InvocationArgs;
 
 use super::strategy::FallbackSubcommandStrategy;
@@ -166,6 +165,7 @@ pub struct Command {
     strategy: Arc<dyn CommandStrategy>,
 }
 
+
 impl Command {
     /// Creates a command specification from any handler implementation type.
     pub fn new<S>(name: impl Into<String>, description: impl Into<String>, strategy: S) -> Self
@@ -178,22 +178,19 @@ impl Command {
         }
     }
 
-    pub(crate) fn execute(&self, invocation: &InvocationArgs) -> Result<(), StrategyError> {
-        match &invocation.subcommand {
-            Some(subcommand) => self
-                .resolve_subcommand(&subcommand.name)
-                .ok_or_else(|| {
-                    StrategyError::invalid_arguments(format!(
-                        "unknown subcommand '{}'",
-                        subcommand.name
-                    ))
-                })?
-                .execute(subcommand),
-            None => self.strategy.execute(
-                invocation.switches.clone(),
-                invocation.args.clone(),
-                invocation.params.clone(),
-            ),
+    pub(crate) fn execute(&self, mut invocation: InvocationArgs) -> Result<(), StrategyError> {
+        match invocation.subcommand.take() {
+            Some(subcommand) => {
+                self.resolve_subcommand(&subcommand.name)
+                    .ok_or_else(|| {
+                        StrategyError::invalid_arguments(format!(
+                            "unknown subcommand '{}'",
+                            subcommand.name
+                        ))
+                    })?
+                    .execute(*subcommand)
+            }
+            None => self.strategy.execute(invocation),
         }
     }
 

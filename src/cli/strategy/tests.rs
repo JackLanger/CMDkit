@@ -4,7 +4,21 @@ use super::{
     CommandStrategy, FallbackSubcommandStrategy, FunctionStrategy, SubcommandCatalog,
     SubcommandRouter,
 };
-use crate::{Command, StrategyError, StrategyErrorKind, SubcommandRouter as PublicRouter, command};
+use crate::{
+    Command, InvocationArgs, StrategyError, StrategyErrorKind, SubcommandRouter as PublicRouter,
+    command,
+};
+
+fn invocation(params: Vec<String>) -> InvocationArgs {
+    InvocationArgs {
+        name: "run".to_string(),
+        args: Vec::new(),
+        switches: Vec::new(),
+        params,
+        order: Vec::new(),
+        subcommand: None,
+    }
+}
 
 #[test]
 fn router_errors_when_subcommand_token_is_missing() {
@@ -14,7 +28,7 @@ fn router_errors_when_subcommand_token_is_missing() {
             .build(),
     );
 
-    let result = router.execute(Vec::new(), Vec::new(), Vec::new());
+    let result = router.execute(invocation(Vec::new()));
     match result {
         Err(err) => {
             assert_eq!(err.kind, StrategyErrorKind::InvalidArguments);
@@ -33,7 +47,7 @@ fn router_errors_when_subcommand_is_unknown() {
             .build(),
     );
 
-    let result = router.execute(Vec::new(), Vec::new(), vec!["ghost".to_string()]);
+    let result = router.execute(invocation(vec!["ghost".to_string()]));
     match result {
         Err(err) => {
             assert_eq!(err.kind, StrategyErrorKind::InvalidArguments);
@@ -61,11 +75,11 @@ fn router_resolves_alias_and_forwards_tail_params() {
         .build();
 
     let router = SubcommandRouter::new().register(subcommand);
-    let result = router.execute(
-        Vec::new(),
-        Vec::new(),
-        vec!["r".to_string(), "tail-1".to_string(), "tail-2".to_string()],
-    );
+    let result = router.execute(invocation(vec![
+        "r".to_string(),
+        "tail-1".to_string(),
+        "tail-2".to_string(),
+    ]));
 
     assert!(result.is_ok());
     let guard = calls.lock().expect("calls lock should not be poisoned");
@@ -104,7 +118,7 @@ fn fallback_executes_primary_strategy_when_no_params_are_provided() {
     );
 
     let fallback = FallbackSubcommandStrategy::new(fallback_strategy, router);
-    let result = fallback.execute(Vec::new(), Vec::new(), Vec::new());
+    let result = fallback.execute(invocation(Vec::new()));
 
     assert!(result.is_ok());
     assert_eq!(
@@ -151,11 +165,7 @@ fn fallback_routes_to_router_when_params_exist() {
     );
 
     let fallback = FallbackSubcommandStrategy::new(fallback_strategy, router);
-    let result = fallback.execute(
-        Vec::new(),
-        Vec::new(),
-        vec!["run".to_string(), "tail".to_string()],
-    );
+    let result = fallback.execute(invocation(vec!["run".to_string(), "tail".to_string()]));
 
     assert!(result.is_ok());
     assert!(
@@ -178,12 +188,7 @@ struct CatalogStrategy {
 }
 
 impl CommandStrategy for CatalogStrategy {
-    fn execute(
-        &self,
-        _options: Vec<crate::Switch>,
-        _arguments: Vec<crate::Argument>,
-        _params: Vec<String>,
-    ) -> Result<(), StrategyError> {
+    fn execute(&self, _invocation: InvocationArgs) -> Result<(), StrategyError> {
         Ok(())
     }
 

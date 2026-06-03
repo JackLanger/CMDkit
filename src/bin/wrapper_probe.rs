@@ -1,21 +1,16 @@
-use cmdkit::{Argument, Command, CommandStrategy, StrategyError, Switch, core};
+use cmdkit::{core::InvocationArgs, Command, CommandStrategy, StrategyError, CMDKit};
 
 struct ProbeStrategy;
 
 impl CommandStrategy for ProbeStrategy {
-    fn execute(
-        &self,
-        _options: Vec<Switch>,
-        _arguments: Vec<Argument>,
-        _params: Vec<String>,
-    ) -> Result<(), StrategyError> {
+    fn execute(&self, _invocation: InvocationArgs) -> Result<(), StrategyError> {
         Ok(())
     }
 }
 
 fn main() {
     println!("--FIRST--");
-    core::CMDKit::run_with_commands(&[Command::new("alpha", "alpha command", ProbeStrategy)]);
+    CMDKit::run_with_commands(&[Command::new("alpha", "alpha command", ProbeStrategy)]);
     println!("--SECOND--");
-    core::CMDKit::run_with_commands(&[Command::new("beta", "beta command", ProbeStrategy)]);
+    CMDKit::run_with_commands(&[Command::new("beta", "beta command", ProbeStrategy)]);
 }

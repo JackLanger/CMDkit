@@ -84,17 +84,15 @@ Both support aliases.
 ## Quick Start
 
 ```rust
-use cmdkit::{argument, command, switch, Argument, CMDKit, CommandStrategy, StrategyError, Switch};
+use cmdkit::{argument, command, switch, CMDKit, CommandStrategy, InvocationArgs, StrategyError};
 
 struct CreateProject;
 
 impl CommandStrategy for CreateProject {
-    fn execute(
-        &self,
-        options: Vec<Switch>,
-        arguments: Vec<Argument>,
-        _params: Vec<String>,
-    ) -> Result<(), StrategyError> {
+    fn execute(&self, invocation: InvocationArgs) -> Result<(), StrategyError> {
+        let options = invocation.switches;
+        let arguments = invocation.args;
+
         let name = arguments
             .iter()
             .find(|arg| arg.name == "name")

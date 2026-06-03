@@ -21,6 +21,7 @@ pub enum InvocationElement {
     Param(String),
 }
 
+/// InvocationArgs is a single-consumption execution envelope and is not guaranteed to remain intact after dispatch traversal.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InvocationArgs {
     pub name: String,
@@ -529,10 +530,12 @@ impl CMDKit {
                 help: self.render_help(&binary),
             })?;
 
+        let command_name = invocation.leaf_name().to_string();
+
         command
-            .execute(&invocation)
+            .execute(invocation)
             .map_err(|source| CMDKitError::StrategyExecution {
-                command: invocation.leaf_name().to_string(),
+                command: command_name,
                 source,
             })
     }

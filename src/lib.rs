@@ -34,11 +34,12 @@ pub fn try_run_with_commands(commands: &[Command]) -> Result<(), CMDKitError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{CMDKitError, run_with_commands, try_run_with_commands};
+    use super::{CMDKitError, run_with_commands};
+    use crate::CMDKit;
 
     #[test]
     fn wrapper_try_run_with_commands_propagates_missing_command_error() {
-        let result = try_run_with_commands(&[]);
+        let result = CMDKit::builder().build().try_run_from_args(&["app".to_string()]);
 
         match result {
             Err(CMDKitError::MissingCommand { help }) => {
