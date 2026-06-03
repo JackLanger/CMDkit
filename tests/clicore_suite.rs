@@ -1,10 +1,11 @@
 use std::sync::{Arc, Mutex};
 
 use cmdkit::{
-    Argument, CliCore, CliCoreError, Command, CommandStrategy, StrategyError, StrategyErrorKind,
-    SubcommandRouter, Switch, argument, command, switch,
+    Argument, ArgumentInterpreter, ArgumentValue, CMDKit, CMDKitError, Command, CommandStrategy,
+    InvocationArgs, InvocationElement, PlainTextArgumentInterpreter, StrategyError,
+    StrategyErrorKind, SubcommandRouter, argument, cli, command, switch,
 };
-type CallLog = Arc<Mutex<Vec<(Vec<Switch>, Vec<Argument>, Vec<String>)>>>;
+type CallLog = Arc<Mutex<Vec<(Vec<String>, Vec<Argument>, Vec<String>)>>>;
 
 struct RecorderStrategy {
     calls: CallLog,
@@ -14,12 +15,11 @@ struct RecorderStrategy {
 impl CommandStrategy for RecorderStrategy {
     fn execute(
         &self,
-        options: Vec<Switch>,
-        arguments: Vec<Argument>,
-        params: Vec<String>,
+        _context: &cmdkit::ExecutionContext,
+        invocation: InvocationArgs,
     ) -> Result<(), StrategyError> {
         let mut guard = self.calls.lock().expect("call log lock poisoned");
-        guard.push((options, arguments, params));
+        guard.push((invocation.switches, invocation.args, invocation.params));
 
         if let Some(err) = &self.error {
             return Err(err.clone());
@@ -38,22 +38,27 @@ fn build_recorder_functionality(
     Command::new(name, description, RecorderStrategy { calls, error })
 }
 
-fn has_switch(switches: &[Switch], name: &str) -> bool {
-    switches.iter().any(|switch| switch.name == name)
+fn has_switch(switches: &[String], name: &str) -> bool {
+    switches.iter().any(|switch| switch == name)
 }
 
 fn argument_value<'a>(arguments: &'a [Argument], name: &str) -> Option<&'a str> {
-    arguments
+    let value = &arguments
         .iter()
         .find(|argument| argument.name == name)
-        .and_then(|argument| argument.value.as_deref())
+        .expect("argument should be found in the strategy call log") // For test purposes, we expect the argument to be present
+        .value;
+    match value {
+        cmdkit::ArgumentValue::String(value) => Some(value.as_str()),
+        _ => None,
+    }
 }
 
 #[test]
 fn register_and_get_by_name_works() {
     let calls = Arc::new(Mutex::new(Vec::new()));
 
-    let core = CliCore::builder()
+    let core = CMDKit::builder()
         .register(build_recorder_functionality(
             "echo",
             "echo arguments",
@@ -73,7 +78,7 @@ fn register_and_get_by_name_works() {
 fn duplicate_registration_overwrites_previous_entry() {
     let calls = Arc::new(Mutex::new(Vec::new()));
 
-    let core = CliCore::builder()
+    let core = CMDKit::builder()
         .register(build_recorder_functionality(
             "dup",
             "first",
@@ -93,10 +98,157 @@ fn duplicate_registration_overwrites_previous_entry() {
 }
 
 #[test]
+fn top_level_command_alias_invocation_succeeds() {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+
+    let core = CMDKit::builder()
+        .register(
+            command("build", "build project")
+                .with_aliases(vec!["b", "compile"])
+                .handler(RecorderStrategy {
+                    calls: Arc::clone(&calls),
+                    error: None,
+                })
+                .build(),
+        )
+        .build();
+
+    let args = vec!["app".to_string(), "b".to_string()];
+    assert!(core.try_run_from_args(&args).is_ok());
+
+    let guard = calls.lock().expect("call log lock poisoned");
+    assert_eq!(guard.len(), 1);
+}
+
+#[test]
+fn nested_subcommand_alias_invocation_succeeds() {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let calls_for_strategy = Arc::clone(&calls);
+
+    let core = CMDKit::builder()
+        .register(
+            command("tool", "tool root")
+                .subcommand(
+                    command("run", "run command")
+                        .with_aliases(vec!["r"])
+                        .handler_fn(move |_, invocation| {
+                            let options = invocation.switches;
+                            let arguments = invocation.args;
+                            let params = invocation.params;
+                            let mut guard =
+                                calls_for_strategy.lock().expect("call log lock poisoned");
+                            guard.push((options, arguments, params));
+                            Ok(())
+                        })
+                        .build(),
+                )
+                .build(),
+        )
+        .build();
+
+    let args = vec!["app".to_string(), "tool".to_string(), "r".to_string()];
+    assert!(core.try_run_from_args(&args).is_ok());
+
+    let guard = calls.lock().expect("call log lock poisoned");
+    assert_eq!(guard.len(), 1);
+}
+
+#[test]
+fn registration_rejects_alias_conflicting_with_existing_command_name() {
+    let result = CMDKit::builder()
+        .try_register(command("build", "build").handler_fn(|_, _| Ok(())).build())
+        .and_then(|builder| {
+            builder.try_register(
+                command("deploy", "deploy")
+                    .with_aliases(vec!["build"])
+                    .handler_fn(|_, _| Ok(()))
+                    .build(),
+            )
+        });
+
+    match result {
+        Err(CMDKitError::Registration { message }) => {
+            assert!(message.contains("alias 'build' conflicts with existing command name 'build'"));
+        }
+        _ => panic!("expected registration collision error"),
+    }
+}
+
+#[test]
+fn registration_rejects_alias_conflicting_with_existing_alias() {
+    let result = CMDKit::builder()
+        .try_register(
+            command("build", "build")
+                .with_aliases(vec!["b"])
+                .handler_fn(|_, _| Ok(()))
+                .build(),
+        )
+        .and_then(|builder| {
+            builder.try_register(
+                command("bundle", "bundle")
+                    .with_aliases(vec!["b"])
+                    .handler_fn(|_, _| Ok(()))
+                    .build(),
+            )
+        });
+
+    match result {
+        Err(CMDKitError::Registration { message }) => {
+            assert!(message.contains("alias 'b' conflicts with existing alias owned by 'build'"));
+        }
+        _ => panic!("expected registration collision error"),
+    }
+}
+
+#[test]
+fn registration_rejects_command_name_conflicting_with_existing_alias() {
+    let result = CMDKit::builder()
+        .try_register(
+            command("build", "build")
+                .with_aliases(vec!["b"])
+                .handler_fn(|_, _| Ok(()))
+                .build(),
+        )
+        .and_then(|builder| {
+            builder.try_register(command("b", "b cmd").handler_fn(|_, _| Ok(())).build())
+        });
+
+    match result {
+        Err(CMDKitError::Registration { message }) => {
+            assert!(
+                message.contains("command name 'b' conflicts with existing alias owned by 'build'")
+            );
+        }
+        _ => panic!("expected registration collision error"),
+    }
+}
+
+#[test]
+fn bulk_registration_rejects_collisions() {
+    let cmd_a = command("build", "build")
+        .with_aliases(vec!["b"])
+        .handler_fn(|_, _| Ok(()))
+        .build();
+    let cmd_b = command("bundle", "bundle")
+        .with_aliases(vec!["b"])
+        .handler_fn(|_, _| Ok(()))
+        .build();
+
+    let result = CMDKit::builder().try_with_commands(&[cmd_a, cmd_b]);
+
+    match result {
+        Err(CMDKitError::Registration { message }) => {
+            assert!(message.contains("alias 'b' conflicts with existing alias owned by 'build'"));
+        }
+        _ => panic!("expected registration collision error"),
+    }
+}
+
+#[test]
 fn run_from_args_routes_trailing_arguments_to_strategy() {
     let calls = Arc::new(Mutex::new(Vec::new()));
 
-    let core = CliCore::builder()
+    let core = CMDKit::builder()
         .register(
             command("echo", "echo arguments")
                 .handler(RecorderStrategy {
@@ -131,7 +283,7 @@ fn run_from_args_routes_trailing_arguments_to_strategy() {
 fn strategy_receives_subtask_tokens_for_chain_of_responsibility() {
     let calls = Arc::new(Mutex::new(Vec::new()));
 
-    let core = CliCore::builder()
+    let core = CMDKit::builder()
         .register(
             command("test", "test root")
                 .handler(RecorderStrategy {
@@ -167,10 +319,13 @@ fn functionality_from_fn_supports_function_based_strategy_registration() {
     let calls = Arc::new(Mutex::new(Vec::new()));
     let calls_for_strategy = Arc::clone(&calls);
 
-    let core = CliCore::builder()
+    let core = CMDKit::builder()
         .register(
             command("fncmd", "defined from a function")
-                .handler_fn(move |options, arguments, params| {
+                .handler_fn(move |_, invocation| {
+                    let options = invocation.switches;
+                    let arguments = invocation.args;
+                    let params = invocation.params;
                     let mut guard = calls_for_strategy.lock().expect("call log lock poisoned");
                     guard.push((options, arguments, params));
                     Ok(())
@@ -197,13 +352,13 @@ fn functionality_from_fn_supports_function_based_strategy_registration() {
 
 #[test]
 fn run_from_args_returns_missing_command_error() {
-    let core = CliCore::builder();
+    let core = CMDKit::builder();
     let args = vec!["app".to_string()];
 
     let result = core.build().try_run_from_args(&args);
 
     match result {
-        Err(CliCoreError::MissingCommand { help }) => {
+        Err(CMDKitError::MissingCommand { help }) => {
             assert!(help.contains("Usage:"));
         }
         _ => panic!("expected missing command error"),
@@ -212,13 +367,13 @@ fn run_from_args_returns_missing_command_error() {
 
 #[test]
 fn help_text_uses_explicit_binary_name_for_missing_command() {
-    let core = CliCore::builder();
+    let core = CMDKit::builder();
     let args = vec!["custom-cli".to_string()];
 
     let result = core.build().try_run_from_args(&args);
 
     match result {
-        Err(CliCoreError::MissingCommand { help }) => {
+        Err(CMDKitError::MissingCommand { help }) => {
             assert!(help.contains("Usage: custom-cli <command> [args...]"));
         }
         _ => panic!("expected missing command error"),
@@ -227,13 +382,13 @@ fn help_text_uses_explicit_binary_name_for_missing_command() {
 
 #[test]
 fn help_text_uses_explicit_binary_name_for_unknown_command() {
-    let core = CliCore::builder();
+    let core = CMDKit::builder();
     let args = vec!["custom-cli".to_string(), "not-a-command".to_string()];
 
     let result = core.build().try_run_from_args(&args);
 
     match result {
-        Err(CliCoreError::UnknownCommand { help, .. }) => {
+        Err(CMDKitError::UnknownCommand { help, .. }) => {
             assert!(help.contains("Usage: custom-cli <command> [args...]"));
         }
         _ => panic!("expected unknown command error"),
@@ -242,13 +397,13 @@ fn help_text_uses_explicit_binary_name_for_unknown_command() {
 
 #[test]
 fn run_from_args_returns_unknown_command_error() {
-    let core = CliCore::builder().build();
+    let core = CMDKit::builder().build();
     let args = vec!["app".to_string(), "unknown".to_string()];
 
     let result = core.try_run_from_args(&args);
 
     match result {
-        Err(CliCoreError::UnknownCommand { command, help }) => {
+        Err(CMDKitError::UnknownCommand { command, help }) => {
             assert_eq!(command, "unknown");
             assert!(help.contains("supported commands:"));
         }
@@ -260,7 +415,7 @@ fn run_from_args_returns_unknown_command_error() {
 fn strategy_errors_bubble_with_kind_and_message() {
     let calls = Arc::new(Mutex::new(Vec::new()));
 
-    let core = CliCore::builder()
+    let core = CMDKit::builder()
         .register(build_recorder_functionality(
             "validate",
             "fails validation",
@@ -276,7 +431,7 @@ fn strategy_errors_bubble_with_kind_and_message() {
     let result = core.try_run_from_args(&args);
 
     match result {
-        Err(CliCoreError::StrategyExecution { command, source }) => {
+        Err(CMDKitError::StrategyExecution { command, source }) => {
             assert_eq!(command, "validate");
             assert_eq!(source.kind, StrategyErrorKind::InvalidArguments);
             assert_eq!(source.message, "missing value");
@@ -286,10 +441,10 @@ fn strategy_errors_bubble_with_kind_and_message() {
 }
 
 #[test]
-fn parser_rejects_unknown_flags() {
+fn interpreter_rejects_unknown_flags() {
     let calls = Arc::new(Mutex::new(Vec::new()));
 
-    let core = CliCore::builder()
+    let core = CMDKit::builder()
         .register(
             command("strict", "strict command")
                 .handler(RecorderStrategy {
@@ -310,7 +465,7 @@ fn parser_rejects_unknown_flags() {
 
     let result = core.try_run_from_args(&args);
     match result {
-        Err(CliCoreError::StrategyExecution { command, source }) => {
+        Err(CMDKitError::StrategyExecution { command, source }) => {
             assert_eq!(command, "strict");
             assert_eq!(source.kind, StrategyErrorKind::InvalidArguments);
             assert!(source.message.contains("unknown flag '--unknown'"));
@@ -320,10 +475,10 @@ fn parser_rejects_unknown_flags() {
 }
 
 #[test]
-fn parser_enforces_required_argument_presence_and_non_empty_values() {
+fn interpreter_enforces_required_argument_presence_and_non_empty_values() {
     let calls = Arc::new(Mutex::new(Vec::new()));
 
-    let core = CliCore::builder()
+    let core = CMDKit::builder()
         .register(
             command("strict", "strict command")
                 .handler(RecorderStrategy {
@@ -338,7 +493,7 @@ fn parser_enforces_required_argument_presence_and_non_empty_values() {
     let missing_value = vec!["app".to_string(), "strict".to_string()];
     let missing_result = core.try_run_from_args(&missing_value);
     match missing_result {
-        Err(CliCoreError::StrategyExecution { source, .. }) => {
+        Err(CMDKitError::StrategyExecution { source, .. }) => {
             assert_eq!(source.kind, StrategyErrorKind::InvalidArguments);
             assert!(
                 source
@@ -356,7 +511,7 @@ fn parser_enforces_required_argument_presence_and_non_empty_values() {
     ];
     let inline_empty_result = core.try_run_from_args(&inline_empty);
     match inline_empty_result {
-        Err(CliCoreError::StrategyExecution { source, .. }) => {
+        Err(CMDKitError::StrategyExecution { source, .. }) => {
             assert_eq!(source.kind, StrategyErrorKind::InvalidArguments);
             assert!(
                 source
@@ -375,7 +530,7 @@ fn parser_enforces_required_argument_presence_and_non_empty_values() {
     ];
     let next_empty_result = core.try_run_from_args(&next_empty);
     match next_empty_result {
-        Err(CliCoreError::StrategyExecution { source, .. }) => {
+        Err(CMDKitError::StrategyExecution { source, .. }) => {
             assert_eq!(source.kind, StrategyErrorKind::InvalidArguments);
             assert!(
                 source
@@ -388,14 +543,17 @@ fn parser_enforces_required_argument_presence_and_non_empty_values() {
 }
 
 #[test]
-fn parser_accepts_argument_aliases_and_uses_last_value_wins() {
+fn interpreter_accepts_argument_aliases_and_uses_last_value_wins() {
     let calls = Arc::new(Mutex::new(Vec::new()));
     let calls_for_strategy = Arc::clone(&calls);
 
-    let core = CliCore::builder()
+    let core = CMDKit::builder()
         .register(
             command("alias", "alias command")
-                .handler_fn(move |options, arguments, params| {
+                .handler_fn(move |_, invocation| {
+                    let options = invocation.switches;
+                    let arguments = invocation.args;
+                    let params = invocation.params;
                     let mut guard = calls_for_strategy.lock().expect("call log lock poisoned");
                     guard.push((options, arguments, params));
                     Ok(())
@@ -422,15 +580,19 @@ fn parser_accepts_argument_aliases_and_uses_last_value_wins() {
     assert_eq!(guard.len(), 1);
     assert_eq!(guard[0].1.len(), 1);
     assert_eq!(guard[0].1[0].name, "path");
-    assert_eq!(guard[0].1[0].value.as_deref(), Some("second"));
+
+    match &guard[0].1[0].value {
+        ArgumentValue::String(value) => assert_eq!(value, "second"),
+        _ => panic!("expected value string"),
+    }
 }
 
 #[test]
 fn independent_instances_do_not_share_registry_entries() {
-    let core_b = CliCore::builder().build();
+    let core_b = CMDKit::builder().build();
     let calls = Arc::new(Mutex::new(Vec::new()));
 
-    let core_a = CliCore::builder()
+    let core_a = CMDKit::builder()
         .register(build_recorder_functionality(
             "isolated",
             "only in core_a",
@@ -444,12 +606,325 @@ fn independent_instances_do_not_share_registry_entries() {
 }
 
 #[test]
+fn configured_argument_interpreter_can_drive_invocation() {
+    struct FixedInterpreter;
+
+    use cli::ArgumentValue;
+    impl ArgumentInterpreter for FixedInterpreter {
+        fn interpret(
+            &self,
+            _arg: &[String],
+            _registered_commands: &[&Command],
+        ) -> Result<cmdkit::InvocationArgs, CMDKitError> {
+            Ok(cmdkit::InvocationArgs {
+                name: "echo".to_string(),
+                args: vec![
+                    argument("path", "path value")
+                        .set_value(ArgumentValue::String("from-interpreter".to_string())),
+                ],
+                switches: vec!["loud".to_string(), "loud switch".to_string()],
+                params: vec!["tail".to_string()],
+                order: vec![
+                    InvocationElement::Switch("loud".to_string()),
+                    InvocationElement::Switch("loud switch".to_string()),
+                    InvocationElement::Argument(
+                        argument("path", "path value")
+                            .set_value(ArgumentValue::String("from-interpreter".to_string())),
+                    ),
+                    InvocationElement::Param("tail".to_string()),
+                ],
+                subcommand: None,
+            })
+        }
+    }
+
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let core = CMDKit::builder()
+        .with_argument_interpreter(FixedInterpreter)
+        .register(
+            command("echo", "echo arguments")
+                .handler(RecorderStrategy {
+                    calls: Arc::clone(&calls),
+                    error: None,
+                })
+                .with_options(vec![switch("loud", "loud switch")])
+                .with_arguments(vec![argument("path", "path value")])
+                .build(),
+        )
+        .build();
+
+    assert!(core.try_run_from_args(&["app".to_string()]).is_ok());
+
+    let guard = calls.lock().expect("call log lock poisoned");
+    assert_eq!(guard.len(), 1);
+    assert!(has_switch(&guard[0].0, "loud"));
+    assert_eq!(
+        argument_value(&guard[0].1, "path"),
+        Some("from-interpreter")
+    );
+    assert_eq!(guard[0].2, vec!["tail".to_string()]);
+}
+
+#[test]
+fn configured_argument_interpreter_rejects_unresolvable_subcommand_path() {
+    struct InvalidSubcommandInterpreter;
+
+    impl ArgumentInterpreter for InvalidSubcommandInterpreter {
+        fn interpret(
+            &self,
+            _arg: &[String],
+            _registered_commands: &[&Command],
+        ) -> Result<cmdkit::InvocationArgs, CMDKitError> {
+            Ok(cmdkit::InvocationArgs {
+                name: "echo".to_string(),
+                args: Vec::new(),
+                switches: Vec::new(),
+                params: Vec::new(),
+                order: Vec::new(),
+                subcommand: Some(Box::new(cmdkit::InvocationArgs {
+                    name: "ghost".to_string(),
+                    args: Vec::new(),
+                    switches: Vec::new(),
+                    params: Vec::new(),
+                    order: Vec::new(),
+                    subcommand: None,
+                })),
+            })
+        }
+    }
+
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let core = CMDKit::builder()
+        .with_argument_interpreter(InvalidSubcommandInterpreter)
+        .register(
+            command("echo", "echo arguments")
+                .handler(RecorderStrategy {
+                    calls: Arc::clone(&calls),
+                    error: None,
+                })
+                .build(),
+        )
+        .build();
+
+    let result = core.try_run_from_args(&["app".to_string()]);
+    match result {
+        Err(CMDKitError::StrategyExecution { source, .. }) => {
+            assert_eq!(source.kind, StrategyErrorKind::InvalidArguments);
+            assert!(source.message.contains("unknown subcommand 'ghost'"));
+        }
+        _ => panic!("expected invalid subcommand path error"),
+    }
+
+    let guard = calls.lock().expect("call log lock poisoned");
+    assert!(guard.is_empty());
+}
+
+#[test]
+fn plain_text_interpreter_returns_missing_command_without_registered_input() {
+    let interpreter = PlainTextArgumentInterpreter;
+
+    let result = interpreter.interpret(&[], &[]);
+
+    match result {
+        Err(CMDKitError::MissingCommand { help }) => {
+            assert!(help.is_empty());
+        }
+        _ => panic!("expected missing command interpreter error"),
+    }
+}
+
+#[test]
+fn plain_text_interpreter_returns_unknown_command_for_unregistered_name() {
+    let interpreter = PlainTextArgumentInterpreter;
+
+    let result = interpreter.interpret(&["missing".to_string()], &[]);
+
+    match result {
+        Err(CMDKitError::UnknownCommand { command, help }) => {
+            assert_eq!(command, "missing");
+            assert!(help.is_empty());
+        }
+        _ => panic!("expected unknown command interpreter error"),
+    }
+}
+
+#[test]
+fn plain_text_interpreter_resolves_aliases_to_canonical_typed_metadata() {
+    let interpreter = PlainTextArgumentInterpreter;
+    let root = command("tool", "tool root")
+        .with_aliases(vec!["t"])
+        .with_options(vec![
+            switch("verbose", "verbose output").with_aliases(vec!["v".to_string()]),
+        ])
+        .with_arguments(vec![argument("path", "path value").with_aliases(vec!["p"])])
+        .handler_fn(|_, _| Ok(()))
+        .build();
+
+    let invocation = interpreter
+        .interpret(
+            &[
+                "t".to_string(),
+                "--v".to_string(),
+                "--p".to_string(),
+                "src/lib.rs".to_string(),
+            ],
+            &[&root],
+        )
+        .expect("interpreter should resolve aliases using declared metadata");
+
+    assert_eq!(invocation.name, "tool");
+    assert_eq!(invocation.switches.len(), 1);
+    assert_eq!(invocation.switches[0], "verbose");
+
+    assert_eq!(invocation.args.len(), 1);
+    assert_eq!(invocation.args[0].name, "path");
+
+    match &invocation.args[0].value {
+        ArgumentValue::String(value) => assert_eq!(value, "src/lib.rs"),
+        _ => panic!("expected argument value to be a string"),
+    }
+}
+
+#[test]
+fn plain_text_interpreter_moves_repeated_argument_to_latest_position() {
+    let interpreter = PlainTextArgumentInterpreter;
+    let root = command("tool", "tool root")
+        .with_options(vec![switch("verbose", "verbose output")])
+        .with_arguments(vec![
+            argument("path", "path value"),
+            argument("mode", "mode value"),
+        ])
+        .handler_fn(|_, _| Ok(()))
+        .build();
+
+    let invocation = interpreter
+        .interpret(
+            &[
+                "tool".to_string(),
+                "--path".to_string(),
+                "first".to_string(),
+                "--mode".to_string(),
+                "fast".to_string(),
+                "--path".to_string(),
+                "second".to_string(),
+                "--verbose".to_string(),
+            ],
+            &[&root],
+        )
+        .expect("interpreter should keep the latest argument occurrence");
+
+    assert_eq!(invocation.args.len(), 2);
+    assert_eq!(invocation.args[0].name, "mode");
+    match &invocation.args[0].value {
+        ArgumentValue::String(value) => assert_eq!(value, "fast"),
+        _ => panic!("expected argument value to be a string"),
+    }
+
+    assert_eq!(invocation.args[1].name, "path");
+    match &invocation.args[1].value {
+        ArgumentValue::String(value) => assert_eq!(value, "second"),
+        _ => panic!("expected argument value to be a string"),
+    }
+
+    assert_eq!(invocation.order.len(), 4);
+
+    assert!(matches!(
+        &invocation.order[0],
+        InvocationElement::Argument(argument_decl)
+        if argument_decl.name == "path" && get_value(&argument_decl.value) == "first"
+    ));
+    assert!(matches!(
+        &invocation.order[1],
+        InvocationElement::Argument(argument_decl)
+            if argument_decl.name == "mode" && get_value(&argument_decl.value) == "fast"
+    ));
+    assert!(matches!(
+        &invocation.order[2],
+        InvocationElement::Argument(argument_decl)
+            if argument_decl.name == "path" && get_value(&argument_decl.value) == "second"
+    ));
+    assert!(matches!(
+        &invocation.order[3],
+        InvocationElement::Switch(switch_decl) if switch_decl == "verbose"
+    ));
+}
+
+fn get_value(arg: &ArgumentValue) -> String {
+    match arg {
+        ArgumentValue::String(s) => s.to_string(),
+        _ => panic!("expected argument value to be an array"),
+    }
+}
+#[test]
+fn plain_text_interpreter_preserves_typed_argument_order() {
+    let interpreter = PlainTextArgumentInterpreter;
+    let root = command("tool", "tool root")
+        .with_options(vec![switch("verbose", "verbose output")])
+        .with_arguments(vec![argument("path", "path value")])
+        .subcommand(
+            command("child", "child command")
+                .with_options(vec![switch("force", "force switch")])
+                .with_arguments(vec![argument("mode", "mode value")])
+                .handler_fn(|_, _| Ok(()))
+                .build(),
+        )
+        .handler_fn(|_, _| Ok(()))
+        .build();
+
+    let invocation = interpreter
+        .interpret(
+            &[
+                "tool".to_string(),
+                "--verbose".to_string(),
+                "--path".to_string(),
+                "src".to_string(),
+                "child".to_string(),
+                "--force".to_string(),
+                "--mode=fast".to_string(),
+                "tail".to_string(),
+            ],
+            &[&root],
+        )
+        .expect("interpreter should parse argv-style input");
+
+    assert_eq!(invocation.name, "tool");
+    assert_eq!(invocation.order.len(), 2);
+    assert!(matches!(
+        &invocation.order[0],
+        InvocationElement::Switch(switch_decl) if switch_decl == "verbose"
+    ));
+    assert!(matches!(
+        &invocation.order[1],
+        InvocationElement::Argument(argument_decl)
+            if argument_decl.name == "path" && get_value(&argument_decl.value) == "src"
+    ));
+
+    let child = invocation
+        .subcommand
+        .expect("subcommand invocation should exist");
+    assert_eq!(child.name, "child");
+    assert_eq!(child.params, vec!["tail".to_string()]);
+    assert!(matches!(
+        &child.order[0],
+        InvocationElement::Switch(switch_decl) if switch_decl == "force"
+    ));
+    assert!(matches!(
+        &child.order[1],
+        InvocationElement::Argument(argument_decl)
+            if argument_decl.name == "mode" && get_value(&argument_decl.value) == "fast"
+    ));
+}
+
+#[test]
 fn subcommand_router_dispatches_recursively_to_deep_children() {
     let deep_calls = Arc::new(Mutex::new(Vec::new()));
     let deep_calls_for_leaf = Arc::clone(&deep_calls);
 
     let deep_leaf = command("leaf", "deep leaf")
-        .handler_fn(move |options, arguments, params| {
+        .handler_fn(move |_, invocation| {
+            let options = invocation.switches;
+            let arguments = invocation.args;
+            let params = invocation.params;
             deep_calls_for_leaf
                 .lock()
                 .expect("call log lock poisoned")
@@ -475,7 +950,7 @@ fn subcommand_router_dispatches_recursively_to_deep_children() {
         )),
     );
 
-    let core = CliCore::builder().register(root).build();
+    let core = CMDKit::builder().register(root).build();
 
     let args = vec![
         "app".to_string(),
@@ -502,7 +977,10 @@ fn subcommand_boundary_defers_flag_parsing_to_child_command() {
     let child_calls_for_strategy = Arc::clone(&child_calls);
 
     let run = command("run", "run command")
-        .handler_fn(move |options, arguments, params| {
+        .handler_fn(move |_, invocation| {
+            let options = invocation.switches;
+            let arguments = invocation.args;
+            let params = invocation.params;
             child_calls_for_strategy
                 .lock()
                 .expect("call log lock poisoned")
@@ -513,7 +991,7 @@ fn subcommand_boundary_defers_flag_parsing_to_child_command() {
         .build();
 
     let root = Command::new("tool", "tool root", SubcommandRouter::new().register(run));
-    let core = CliCore::builder().register(root).build();
+    let core = CMDKit::builder().register(root).build();
 
     let args = vec![
         "app".to_string(),
@@ -535,10 +1013,10 @@ fn subcommand_boundary_defers_flag_parsing_to_child_command() {
 #[test]
 fn positional_tokens_before_subcommand_boundary_remain_current_level_params() {
     let run = command("run", "run command")
-        .handler_fn(|_, _, _| Ok(()))
+        .handler_fn(|_, _| Ok(()))
         .build();
     let root = Command::new("tool", "tool root", SubcommandRouter::new().register(run));
-    let core = CliCore::builder().register(root).build();
+    let core = CMDKit::builder().register(root).build();
 
     let args = vec![
         "app".to_string(),
@@ -549,7 +1027,7 @@ fn positional_tokens_before_subcommand_boundary_remain_current_level_params() {
 
     let result = core.try_run_from_args(&args);
     match result {
-        Err(CliCoreError::StrategyExecution { source, .. }) => {
+        Err(CMDKitError::StrategyExecution { source, .. }) => {
             assert_eq!(source.kind, StrategyErrorKind::InvalidArguments);
             assert!(source.message.contains("unknown subcommand 'pre'"));
         }
@@ -565,21 +1043,18 @@ fn help_renderer_includes_recursive_subcommands_from_router_catalog() {
         SubcommandRouter::new().register(Command::new(
             "child",
             "child command",
-            SubcommandRouter::new().register(Command::from_fn(
-                "leaf",
-                "leaf command",
-                |_, _, _| Ok(()),
-            )),
+            SubcommandRouter::new()
+                .register(Command::from_fn("leaf", "leaf command", |_, _| Ok(()))),
         )),
     );
 
-    let core = CliCore::builder().register(root).build();
+    let core = CMDKit::builder().register(root).build();
 
     let args = vec!["app".to_string()];
     let result = core.try_run_from_args(&args);
 
     match result {
-        Err(CliCoreError::MissingCommand { help }) => {
+        Err(CMDKitError::MissingCommand { help }) => {
             assert!(help.contains("tool: tool root"));
             assert!(help.contains("tool child: child command"));
             assert!(help.contains("tool child leaf: leaf command"));
@@ -590,26 +1065,27 @@ fn help_renderer_includes_recursive_subcommands_from_router_catalog() {
 
 #[test]
 fn help_renderer_includes_nested_catalogs_hidden_by_fallback_wrappers() {
-    let root = command("tool", "tool root")
-        .handler(SubcommandRouter::new().register(Command::new(
-            "inner",
-            "inner branch",
-            SubcommandRouter::new().register(Command::from_fn(
-                "leaf",
-                "leaf command",
-                |_, _, _| Ok(()),
-            )),
-        )))
-        .subcommand(command("outer", "outer command").handler_fn(|_, _, _| Ok(())))
-        .build();
+    let root =
+        command("tool", "tool root")
+            .handler(SubcommandRouter::new().register(Command::new(
+                "inner",
+                "inner branch",
+                SubcommandRouter::new().register(Command::from_fn(
+                    "leaf",
+                    "leaf command",
+                    |_, _| Ok(()),
+                )),
+            )))
+            .subcommand(command("outer", "outer command").handler_fn(|_, _| Ok(())))
+            .build();
 
-    let core = CliCore::builder().register(root).build();
+    let core = CMDKit::builder().register(root).build();
 
     let args = vec!["app".to_string()];
     let result = core.try_run_from_args(&args);
 
     match result {
-        Err(CliCoreError::MissingCommand { help }) => {
+        Err(CMDKitError::MissingCommand { help }) => {
             assert!(help.contains("tool outer: outer command"));
             assert!(help.contains("tool inner: inner branch"));
             assert!(help.contains("tool inner leaf: leaf command"));
@@ -621,7 +1097,7 @@ fn help_renderer_includes_nested_catalogs_hidden_by_fallback_wrappers() {
 #[test]
 fn help_renderer_includes_optional_metadata_fields() {
     let cmd = command("build", "Build a project")
-        .handler_fn(|_, _, _| Ok(()))
+        .handler_fn(|_, _| Ok(()))
         .with_aliases(vec!["b", "compile"])
         .with_usage("build --path <dir> [--release]")
         .with_long_description("Builds the project artifacts for distribution")
@@ -639,13 +1115,13 @@ fn help_renderer_includes_optional_metadata_fields() {
         ])
         .build();
 
-    let core = CliCore::builder().register(cmd).build();
+    let core = CMDKit::builder().register(cmd).build();
 
     let args = vec!["app".to_string()];
     let result = core.try_run_from_args(&args);
 
     match result {
-        Err(CliCoreError::MissingCommand { help }) => {
+        Err(CMDKitError::MissingCommand { help }) => {
             assert!(help.contains("- build: Build a project"));
             assert!(help.contains("usage: build --path <dir> [--release]"));
             assert!(help.contains("details: Builds the project artifacts for distribution"));

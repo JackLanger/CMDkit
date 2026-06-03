@@ -1,6 +1,6 @@
 # CMDkit
 
-CMDkit is a small, implementation-first Rust framework for building command-line tools.
+CMDkit is a deterministic command-execution runtime that separates command definition from invocation parsing and execution orchestration, while enabling full runtime configuration during setup.
 
 It is designed around three ideas:
 
@@ -19,7 +19,7 @@ cargo add cmdkit
 ## Highlights
 
 - Register commands with `Command::new(...)` or fluent `command(...).build()`.
-- Attach handlers as structs (`CommandStrategy`) or closures (`handler_fn` / `Command::from_fn`).
+- Attach handlers as structs (`CommandStrategy`) or closures (`handler_fn` / `handler_fn_with_context` / `Command::from_fn` / `Command::from_fn_with_context`), all using `(&ExecutionContext, InvocationArgs)`.
 - Compose nested command hierarchies with subcommands.
 - Parse command input into three channels:
     - `options: Vec<Switch>` for switch/flag inputs
@@ -32,29 +32,29 @@ cargo add cmdkit
 
 ### Runtime
 
-- `CliCore::new()` creates a runtime with default configuration.
-- `CliCore::builder()` starts a fluent builder for registering commands before building the runtime.
-- `CliCore::create(config)` uses custom `CoreConfig`.
+- `CMDKit::new()` creates a runtime with default configuration.
+- `CMDKit::builder()` starts a fluent builder for registering commands before building the runtime.
+- `CMDKit::create(config)` uses custom `CoreConfig`.
 - `register`, `get`, and `get_all` manage command registration on a runtime instance.
 - `try_run_from_args(&[String])` is ideal for tests and embedding.
 - `run_with_commands` and `try_run_with_commands` are convenience wrappers.
 
-Each `CliCore` instance owns its own registry. Runtime state is not shared across instances.
+Each `CMDKit` instance owns its own registry. Runtime state is not shared across instances.
 
 ### Architecture Contract
 
 The runtime model follows a strict build-then-dispatch lifecycle:
 
-- Mutation is builder-only: command registration and config changes happen in `CliCoreBuilder`.
-- `build()` is the freeze boundary: once built, `CliCore` has no runtime mutation API.
-- No process-global mutable state: each `CliCore` instance owns an isolated registry and config.
+- Mutation is builder-only: command registration and config changes happen in `CMDKitBuilder`.
+- `build()` is the freeze boundary: once built, `CMDKit` has no runtime mutation API.
+- No process-global mutable state: each `CMDKit` instance owns an isolated registry and config.
 - Runtime operations are read-only: dispatch and lookup use immutable access to core state.
 - Dispatch is deterministic: `try_run_from_args` takes explicit argv input and returns structured errors.
 
 Invariants:
 
-- A built `CliCore` never mutates its registry or config during runtime.
-- Two distinct `CliCore` instances do not share mutable state and cannot affect each other.
+- A built `CMDKit` never mutates its registry or config during runtime.
+- Two distinct `CMDKit` instances do not share mutable state and cannot affect each other.
 
 ### Command Construction
 
@@ -63,6 +63,7 @@ Invariants:
 - `command(name, description)` fluent builder:
   - `.handler(...)`
   - `.handler_fn(...)`
+  - `.handler_fn_with_context(...)`
   - `.subcommand(...)`
   - `.with_usage(...)`
   - `.with_long_description(...)`
@@ -84,17 +85,19 @@ Both support aliases.
 ## Quick Start
 
 ```rust
-use cmdkit::{argument, command, switch, Argument, CliCore, CommandStrategy, StrategyError, Switch};
+use cmdkit::{argument, command, switch, CMDKit, CommandStrategy, InvocationArgs, StrategyError};
 
 struct CreateProject;
 
 impl CommandStrategy for CreateProject {
     fn execute(
         &self,
-        options: Vec<Switch>,
-        arguments: Vec<Argument>,
-        _params: Vec<String>,
+        _context: &cmdkit::ExecutionContext,
+        invocation: InvocationArgs,
     ) -> Result<(), StrategyError> {
+        let options = invocation.switches;
+        let arguments = invocation.args;
+
         let name = arguments
             .iter()
             .find(|arg| arg.name == "name")
@@ -116,7 +119,7 @@ impl CommandStrategy for CreateProject {
 
 fn main() {
   
-    let core = CliCore::builder()
+    let core = CMDKit::builder()
           .register(
                 command("create", "Create a new project")
                   .handler(CreateProject)
@@ -139,22 +142,26 @@ fn main() {
 Nested trees can be built directly with the fluent builder:
 
 ```rust
-use cmdkit::{command, CliCore};
+use cmdkit::{command, CMDKit};
 fn main () {
-    let core = CliCore::builder()
+    let core = CMDKit::builder()
         .register(
             command("project", "Project commands")
                 .subcommand(
-                    command("create", "Create a project").handler_fn(|options, arguments, _| {
+                    command("create", "Create a project").handler_fn(|_, invocation| {
+                        let options = invocation.switches;
+                        let arguments = invocation.args;
                         println!("options={options:?} arguments={arguments:?}");
                         Ok(())
                     }),
                 )
                 .subcommand(
-                    command("delete", "Delete a project").handler_fn(|_, arguments, params| {
+                    command("delete", "Delete a project").handler_fn(|_, invocation| {
+                        let arguments = invocation.args;
+                        let params = invocation.params;
                         println!("arguments={arguments:?} params={params:?}");
                         Ok(())
-                      }),
+                       }),
                     )
                     .build(),
           ).build();
@@ -163,6 +170,36 @@ fn main () {
 ```
 
 Routing commands forward execution to leaf commands. The selected leaf strategy receives parsed input.
+
+## Logger Access in Strategies
+
+Strategies receive an `ExecutionContext` during execution and can use the configured logger without globals.
+
+```rust
+use cmdkit::{command, CoreConfig, ExecutionContext, LogLevel, LogSink, StrategyError};
+
+struct StdoutLogger;
+impl LogSink for StdoutLogger {
+    fn log(&self, level: LogLevel, message: &str) {
+        println!("[{level:?}] {message}");
+    }
+}
+
+fn main() {
+  let core = cmdkit::CMDKit::builder()
+          .with_config(CoreConfig::new().with_logger(StdoutLogger))
+          .register(
+            command("run", "run command").handler_fn_with_context(
+              |ctx: &ExecutionContext, _invocation| {
+                ctx.logger.info("run called");
+                Ok::<(), StrategyError>(())
+              },
+            ).build(),
+          )
+          .build();  
+}
+
+```
 
 ## Parser Behavior
 
@@ -229,21 +266,68 @@ impl HelpRenderer for JsonHelp {
 
 ````rust
 
-use cmdkit::{CliCore, CoreConfig};
+use cmdkit::{CMDKit, CoreConfig};
 
 fn main() {
     let config = CoreConfig::new();
-    let core = CliCore::builder().with_config(config).build();
+    let core = CMDKit::builder().with_config(config).build();
 }
 
 ````
 
 Use `CoreConfig` to customize runtime behavior such as the help renderer.
-The registry is owned per `CliCore` instance and does not rely on lock-poison handling.
+The registry is owned per `CMDKit` instance and does not rely on lock-poison handling.
+
+## Implementing Extensions
+
+CMDkit exposes two main extension points: `HelpRenderer` and `ArgumentInterpreter`.
+
+### Custom Help Renderer
+
+Implement `HelpRenderer` when you want to replace the default plain-text help output:
+
+```rust
+use cmdkit::{Command, HelpRenderer};
+
+struct CompactHelp;
+
+impl HelpRenderer for CompactHelp {
+    fn render(&self, caller: &str, commands: &[Command]) -> String {
+        format!("{}: {} commands available", caller, commands.len())
+    }
+}
+```
+
+### Custom Argument Interpreter
+
+Implement `ArgumentInterpreter` when you want to control how raw input is turned into invocation data:
+
+```rust
+use cmdkit::{ArgumentInterpreter, CMDKitError, Command, InvocationArgs};
+
+struct FixedCommandInterpreter;
+
+impl ArgumentInterpreter for FixedCommandInterpreter {
+    fn interpret(
+        &self,
+        _arg: &[String],
+        _registered_commands: &[Command],
+    ) -> Result<InvocationArgs, CMDKitError> {
+        Ok(InvocationArgs {
+            name: "status".to_string(),
+            args: Vec::new(),
+            switches: Vec::new(),
+            params: Vec::new(),
+            order: Vec::new(),
+            subcommand: None,
+        })
+    }
+}
+```
 
 ## Error Model
 
-- `CliCoreError` for dispatch/runtime-level failures:
+- `CMDKitError` for dispatch/runtime-level failures:
   - `MissingCommand`
   - `UnknownCommand`
   - `StrategyExecution`
@@ -252,17 +336,17 @@ The registry is owned per `CliCore` instance and does not rely on lock-poison ha
   - `Execution`
   - `Internal`
 
-`CliCoreError::StrategyExecution` preserves the originating `StrategyError` as source.
+`CMDKitError::StrategyExecution` preserves the originating `StrategyError` as source.
 
 ## Testing and Embedding
 
 Use `try_run_from_args` to test dispatch deterministically:
 
 ```rust
-use cmdkit::{CliCore, CliCoreError};
+use cmdkit::{CMDKit, CMDKitError};
 
-fn run_embedded(args: Vec<String>) -> Result<(), CliCoreError> {
-    let core = CliCore::new();
+fn run_embedded(args: Vec<String>) -> Result<(), CMDKitError> {
+    let core = CMDKit::builder().build();
     core.try_run_from_args(&args)
 }
 ```

@@ -1,3 +1,5 @@
+use crate::core::{ExecutionContext, InvocationArgs};
+use std::fmt::Debug;
 use std::{option::Option, sync::Arc};
 
 use super::strategy::FallbackSubcommandStrategy;
@@ -7,7 +9,7 @@ use super::{
 
 /// Declarative value-taking option metadata.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Switch {
+pub struct SwitchDefinition {
     /// Canonical option name, for example: "path".
     pub name: String,
     /// Human-readable description for help output.
@@ -16,7 +18,7 @@ pub struct Switch {
     pub aliases: Vec<String>,
 }
 
-impl Switch {
+impl SwitchDefinition {
     /// Creates a value-taking option declaration.
     pub fn new(name: impl Into<String>, description: impl Into<String>) -> Self {
         Self {
@@ -34,7 +36,7 @@ impl Switch {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Argument {
+pub struct ArgumentDefinition {
     /// Canonical
     /// Argument name, for example: "verbose".
     pub name: String,
@@ -42,22 +44,57 @@ pub struct Argument {
     pub description: String,
     /// Alternative spellings accepted during parsing.
     pub aliases: Vec<String>,
-    /// Numeric payload that can be mapped to an enum or bit mask.
-    pub value: Option<String>,
     /// Whether this argument is required or optional.
     pub required: bool,
+
+    pub value_type: ValueType,
 }
 
-impl Argument {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ValueType {
+    String,
+    Bool,
+    Float,
+    Int,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ArgumentValue {
+    String(String),
+    Int(i64),
+    Bool(bool),
+    Float(f64),
+}
+
+impl Eq for ArgumentValue {}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Argument {
+    pub name: String,
+    pub value: ArgumentValue,
+}
+
+impl ArgumentDefinition {
     /// Creates a
     /// Argument declaration with the given numeric payload.
-    pub fn new(name: impl Into<String>, description: impl Into<String>) -> Self {
+    pub fn new(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        value_type: ValueType,
+    ) -> Self {
         Self {
             name: name.into(),
             description: description.into(),
             aliases: Vec::new(),
-            value: None,
             required: false,
+            value_type,
+        }
+    }
+
+    pub fn set_value(&self, value: ArgumentValue) -> Argument {
+        Argument {
+            name: self.name.clone(),
+            value,
         }
     }
 
@@ -65,12 +102,6 @@ impl Argument {
     /// Argument.
     pub fn with_aliases(mut self, aliases: Vec<impl Into<String>>) -> Self {
         self.aliases = aliases.into_iter().map(|s| s.into()).collect();
-        self
-    }
-
-    /// Sets the value for this argument.
-    pub fn set_value(mut self, value: impl Into<String>) -> Self {
-        self.value = Some(value.into());
         self
     }
 
@@ -95,10 +126,10 @@ pub struct CommandMetaData {
     /// Optional command examples shown in help output.
     pub examples: Vec<String>,
     /// Optional option/flag descriptions shown in help output.
-    pub options: Vec<Switch>,
+    pub options: Vec<SwitchDefinition>,
     /// Optional
     /// Argument/flag descriptions shown in help output.
-    pub arguments: Vec<Argument>,
+    pub arguments: Vec<ArgumentDefinition>,
     /// Optional aliases accepted by command discovery layers.
     pub aliases: Vec<String>,
 }
@@ -137,14 +168,14 @@ impl CommandMetaData {
     }
 
     /// Adds value-taking option definitions for this command.
-    pub fn with_options(mut self, options: Vec<Switch>) -> Self {
+    pub fn with_options(mut self, options: Vec<SwitchDefinition>) -> Self {
         self.options = options;
         self
     }
 
     /// Adds
     /// Argument/flag definitions for this command.
-    pub fn with_arguments(mut self, arguments: Vec<Argument>) -> Self {
+    pub fn with_arguments(mut self, arguments: Vec<ArgumentDefinition>) -> Self {
         self.arguments = arguments;
         self
     }
@@ -176,13 +207,23 @@ impl Command {
         }
     }
 
-    /// Executes this command after parsing raw argv-style arguments into the strategy contract.
-    pub fn execute(&self, args: Vec<String>) -> Result<(), StrategyError> {
-        let invocation = parser::ArgumentParser::parse(args, &self.metadata, |token| {
-            self.matches_subcommand(token)
-        })?;
-        self.strategy
-            .execute(invocation.options, invocation.arguments, invocation.params)
+    pub(crate) fn execute(
+        &self,
+        context: &ExecutionContext,
+        mut invocation: InvocationArgs,
+    ) -> Result<(), StrategyError> {
+        match invocation.subcommand.take() {
+            Some(subcommand) => self
+                .resolve_subcommand(&subcommand.name)
+                .ok_or_else(|| {
+                    StrategyError::invalid_arguments(format!(
+                        "unknown subcommand '{}'",
+                        subcommand.name
+                    ))
+                })?
+                .execute(context, *subcommand),
+            None => self.strategy.execute(context, invocation),
+        }
     }
 
     /// Returns the optional subcommand catalog exposed by the underlying strategy.
@@ -193,7 +234,7 @@ impl Command {
     /// Creates a command specification directly from a function or closure handler.
     pub fn from_fn<F>(name: impl Into<String>, description: impl Into<String>, runner: F) -> Self
     where
-        F: Fn(Vec<Switch>, Vec<Argument>, Vec<String>) -> Result<(), StrategyError>
+        F: Fn(&ExecutionContext, InvocationArgs) -> Result<(), StrategyError>
             + Send
             + Sync
             + 'static,
@@ -201,25 +242,34 @@ impl Command {
         Self::new(name, description, FunctionStrategy::new(runner))
     }
 
+    /// Alias for [`Command::from_fn`] kept for compatibility.
+    pub fn from_fn_with_context<F>(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        runner: F,
+    ) -> Self
+    where
+        F: Fn(&ExecutionContext, InvocationArgs) -> Result<(), StrategyError>
+            + Send
+            + Sync
+            + 'static,
+    {
+        Self::from_fn(name, description, runner)
+    }
+
     /// Creates a fluent command builder.
     pub fn builder(name: impl Into<String>, description: impl Into<String>) -> CommandBuilder {
         CommandBuilder::new(name, description)
     }
 
-    fn matches_subcommand(&self, token: &str) -> bool {
-        self.subcommand_catalog().is_some_and(|catalog| {
-            catalog.subcommands().into_iter().any(|command| {
+    pub(crate) fn resolve_subcommand(&self, token: &str) -> Option<Command> {
+        self.subcommand_catalog().and_then(|catalog| {
+            catalog.subcommands().into_iter().find(|command| {
                 command.metadata.name == token
                     || command.metadata.aliases.iter().any(|alias| alias == token)
             })
         })
     }
-}
-
-struct ParsedInvocation {
-    options: Vec<Switch>,
-    arguments: Vec<Argument>,
-    params: Vec<String>,
 }
 
 /// Creates a fluent command builder.
@@ -228,13 +278,21 @@ pub fn command(name: impl Into<String>, description: impl Into<String>) -> Comma
 }
 
 /// creates a value-taking option declaration.
-pub fn argument(name: impl Into<String>, description: impl Into<String>) -> Argument {
-    Argument::new(name, description)
+pub fn argument(name: impl Into<String>, description: impl Into<String>) -> ArgumentDefinition {
+    ArgumentDefinition::new(name, description, ValueType::String)
+}
+
+pub fn argument_of_type(
+    name: impl Into<String>,
+    description: impl Into<String>,
+    value_type: ValueType,
+) -> ArgumentDefinition {
+    ArgumentDefinition::new(name, description, value_type)
 }
 
 /// creates a value-taking option declaration with the required flag set to true.
-pub fn switch(name: impl Into<String>, description: impl Into<String>) -> Switch {
-    Switch::new(name, description)
+pub fn switch(name: impl Into<String>, description: impl Into<String>) -> SwitchDefinition {
+    SwitchDefinition::new(name, description)
 }
 /// Fluent command builder that hides strategy implementation details.
 pub struct CommandBuilder {
@@ -265,7 +323,19 @@ impl CommandBuilder {
     /// Sets command strategy using a function/closure.
     pub fn handler_fn<F>(mut self, runner: F) -> Self
     where
-        F: Fn(Vec<Switch>, Vec<Argument>, Vec<String>) -> Result<(), StrategyError>
+        F: Fn(&ExecutionContext, InvocationArgs) -> Result<(), StrategyError>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.strategy = Some(Arc::new(FunctionStrategy::new(runner)));
+        self
+    }
+
+    /// Alias for [`CommandBuilder::handler_fn`] kept for compatibility.
+    pub fn handler_fn_with_context<F>(mut self, runner: F) -> Self
+    where
+        F: Fn(&ExecutionContext, InvocationArgs) -> Result<(), StrategyError>
             + Send
             + Sync
             + 'static,
@@ -302,14 +372,14 @@ impl CommandBuilder {
     }
 
     /// Adds option/flag description entries for this command.
-    pub fn with_options(mut self, options: Vec<Switch>) -> Self {
+    pub fn with_options(mut self, options: Vec<SwitchDefinition>) -> Self {
         self.metadata = self.metadata.with_options(options);
         self
     }
 
     /// Adds
     /// Argument/flag description entries for this command.
-    pub fn with_arguments(mut self, arguments: Vec<Argument>) -> Self {
+    pub fn with_arguments(mut self, arguments: Vec<ArgumentDefinition>) -> Self {
         self.metadata = self.metadata.with_arguments(arguments);
         self
     }
@@ -326,7 +396,7 @@ impl CommandBuilder {
     pub fn build(self) -> Command {
         let strategy: Arc<dyn CommandStrategy> = if self.subcommands.is_empty() {
             self.strategy.unwrap_or_else(|| {
-                Arc::new(FunctionStrategy::new(|_, _, _| {
+                Arc::new(FunctionStrategy::new(|_, _| {
                     Err(StrategyError::internal(
                         "command has no handler; configure a handler or subcommand",
                     ))
@@ -354,171 +424,5 @@ impl CommandBuilder {
 impl From<CommandBuilder> for Command {
     fn from(value: CommandBuilder) -> Self {
         value.build()
-    }
-}
-
-mod parser {
-    use super::{Argument, CommandMetaData, ParsedInvocation, Switch};
-    use crate::StrategyError;
-
-    pub(super) struct ArgumentParser;
-
-    impl ArgumentParser {
-        fn find_declared_argument<'a>(
-            metadata: &'a CommandMetaData,
-            flag: &str,
-        ) -> Option<&'a Argument> {
-            metadata.arguments.iter().find(|argument| {
-                argument.name == flag || argument.aliases.iter().any(|alias| alias == flag)
-            })
-        }
-
-        fn find_declared_switch<'a>(
-            metadata: &'a CommandMetaData,
-            flag: &str,
-        ) -> Option<&'a Switch> {
-            metadata.options.iter().find(|option| {
-                option.name == flag || option.aliases.iter().any(|alias| alias == flag)
-            })
-        }
-
-        fn upsert_argument(arguments: &mut Vec<Argument>, argument: Argument) {
-            if let Some(existing) = arguments
-                .iter_mut()
-                .find(|existing| existing.name == argument.name)
-            {
-                *existing = argument;
-                return;
-            }
-
-            arguments.push(argument);
-        }
-
-        fn validate_required_arguments(
-            metadata: &CommandMetaData,
-            arguments: &[Argument],
-        ) -> Result<(), StrategyError> {
-            for required in metadata
-                .arguments
-                .iter()
-                .filter(|argument| argument.required)
-            {
-                let value = arguments
-                    .iter()
-                    .find(|argument| argument.name == required.name)
-                    .and_then(|argument| argument.value.as_deref());
-
-                if value.is_none_or(|value| value.trim().is_empty()) {
-                    return Err(StrategyError::invalid_arguments(format!(
-                        "missing value for required argument '--{}'",
-                        required.name
-                    )));
-                }
-            }
-
-            Ok(())
-        }
-
-        pub fn parse<F>(
-            args: Vec<String>,
-            metadata: &CommandMetaData,
-            is_subcommand: F,
-        ) -> Result<ParsedInvocation, StrategyError>
-        where
-            F: Fn(&str) -> bool,
-        {
-            let mut options = Vec::new();
-            let mut arguments = Vec::new();
-            let mut params = Vec::new();
-            let mut index = 0;
-
-            while index < args.len() {
-                let token = &args[index];
-
-                if is_subcommand(token) {
-                    break;
-                }
-
-                let Some(flag) = token.strip_prefix("--") else {
-                    params.push(token.clone());
-                    index += 1;
-                    continue;
-                };
-
-                if let Some((flag_name, inline_value)) = flag.split_once('=') {
-                    if let Some(argument_decl) = Self::find_declared_argument(metadata, flag_name) {
-                        Self::upsert_argument(
-                            &mut arguments,
-                            argument_decl.clone().set_value(inline_value.to_string()),
-                        );
-                        index += 1;
-                        continue;
-                    }
-
-                    if let Some(option_decl) = Self::find_declared_switch(metadata, flag_name) {
-                        return Err(StrategyError::invalid_arguments(format!(
-                            "switch '--{}' does not take a value",
-                            option_decl.name
-                        )));
-                    }
-
-                    return Err(StrategyError::invalid_arguments(format!(
-                        "unknown flag '--{}'",
-                        flag_name
-                    )));
-                }
-
-                if let Some(argument_decl) = Self::find_declared_argument(metadata, flag) {
-                    let Some(next) = args.get(index + 1) else {
-                        return Err(StrategyError::invalid_arguments(format!(
-                            "missing value for argument '--{}'",
-                            argument_decl.name
-                        )));
-                    };
-
-                    if next.starts_with("--") || is_subcommand(next) {
-                        return Err(StrategyError::invalid_arguments(format!(
-                            "missing value for argument '--{}'",
-                            argument_decl.name
-                        )));
-                    }
-
-                    Self::upsert_argument(
-                        &mut arguments,
-                        argument_decl.clone().set_value(next.clone()),
-                    );
-                    index += 2;
-                    continue;
-                }
-
-                if let Some(option_decl) = Self::find_declared_switch(metadata, flag) {
-                    if flag.contains('=') {
-                        return Err(StrategyError::invalid_arguments(format!(
-                            "switch '--{}' does not take a value",
-                            option_decl.name
-                        )));
-                    }
-
-                    options.push(option_decl.clone());
-                    index += 1;
-                    continue;
-                }
-
-                return Err(StrategyError::invalid_arguments(format!(
-                    "unknown flag '--{}'",
-                    flag
-                )));
-            }
-
-            params.extend_from_slice(&args[index..]);
-
-            Self::validate_required_arguments(metadata, &arguments)?;
-
-            Ok(ParsedInvocation {
-                options,
-                arguments,
-                params,
-            })
-        }
     }
 }

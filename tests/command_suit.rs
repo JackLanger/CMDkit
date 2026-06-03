@@ -1,24 +1,19 @@
 use std::sync::{Arc, Mutex};
 
-use cmdkit::{Argument, CliCore, Switch, argument, command, switch};
+use cmdkit::{Argument, ArgumentValue, CMDKit, argument, command, switch};
 
-fn format_switches(switches: &[Switch]) -> String {
-    switches
-        .iter()
-        .map(|switch| switch.name.clone())
-        .collect::<Vec<String>>()
-        .join(",")
+fn format_switches(switches: &[String]) -> String {
+    switches.to_vec().join(",")
 }
 
 fn format_arguments(arguments: &[Argument]) -> String {
     arguments
         .iter()
-        .map(|argument| {
-            format!(
-                "{}={}",
-                argument.name,
-                argument.value.clone().unwrap_or_default()
-            )
+        .map(|argument| match argument.value {
+            ArgumentValue::String(ref value) => format!("{}={value}", argument.name),
+            ArgumentValue::Int(value) => format!("{}={value}", argument.name),
+            ArgumentValue::Float(value) => format!("{}={value}", argument.name),
+            _ => argument.name.to_string(),
         })
         .collect::<Vec<String>>()
         .join(",")
@@ -28,10 +23,13 @@ fn format_arguments(arguments: &[Argument]) -> String {
 fn strategy_chain_handles_subtask_tokens() {
     let captured = Arc::new(Mutex::new(Vec::new()));
     let captured_for_strategy = Arc::clone(&captured);
-    let core = CliCore::builder()
+    let core = CMDKit::builder()
         .register(
             command("parent", "Parent command")
-                .handler_fn(move |options, arguments, params| {
+                .handler_fn(move |_, invocation| {
+                    let options = invocation.switches;
+                    let arguments = invocation.args;
+                    let params = invocation.params;
                     let mut guard = captured_for_strategy
                         .lock()
                         .expect("capture lock should not be poisoned");
@@ -71,10 +69,13 @@ fn command_builder_registers_leaf_command_without_exposing_strategy_types() {
     let captured = Arc::new(Mutex::new(Vec::new()));
     let captured_for_handler = Arc::clone(&captured);
 
-    let core = CliCore::builder()
+    let core = CMDKit::builder()
         .register(
             command("echo", "Echo command")
-                .handler_fn(move |options, arguments, params| {
+                .handler_fn(move |_, invocation| {
+                    let options = invocation.switches;
+                    let arguments = invocation.args;
+                    let params = invocation.params;
                     captured_for_handler
                         .lock()
                         .expect("capture lock should not be poisoned")
@@ -111,13 +112,16 @@ fn command_builder_registers_recursive_subcommands_without_router_exposure() {
     let captured = Arc::new(Mutex::new(Vec::new()));
     let captured_for_handler = Arc::clone(&captured);
 
-    let core = CliCore::builder()
+    let core = CMDKit::builder()
         .register(
             command("tool", "tool root")
                 .subcommand(
                     command("run", "run tasks").subcommand(
                         command("one", "run one task")
-                            .handler_fn(move |options, arguments, params| {
+                            .handler_fn(move |_, invocation| {
+                                let options = invocation.switches;
+                                let arguments = invocation.args;
+                                let params = invocation.params;
                                 captured_for_handler
                                     .lock()
                                     .expect("capture lock should not be poisoned")
