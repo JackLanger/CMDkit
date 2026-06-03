@@ -3,7 +3,8 @@ use std::sync::{Arc, Mutex};
 use futures_executor::block_on;
 
 use crate::{
-    CMDKit, CMDKitError, Command, CoreConfig, InvocationArgs, StrategyError, argument, command,
+    ArgumentValue, CMDKit, CMDKitError, Command, CoreConfig, InvocationArgs, StrategyError,
+    argument, command,
 };
 
 struct MarkerHelpRenderer;
@@ -26,7 +27,10 @@ impl crate::core::ArgumentInterpreter for FixedInterpreter {
     ) -> Result<InvocationArgs, CMDKitError> {
         Ok(InvocationArgs {
             name: self.command_name.clone(),
-            args: vec![argument("path", "path arg").set_value("from-fixed")],
+            args: vec![
+                argument("path", "path arg")
+                    .set_value(ArgumentValue::String("from-fixed".to_string())),
+            ],
             switches: Vec::new(),
             params: Vec::new(),
             order: Vec::new(),
@@ -112,11 +116,15 @@ fn builder_argument_interpreter_can_drive_with_commands_registration() {
 
     let cmd = command("echo", "echo command")
         .handler_fn(move |_switches, arguments, _params| {
-            let value = arguments
+            let value: String = match &arguments
                 .iter()
                 .find(|arg| arg.name == "path")
-                .and_then(|arg| arg.value.clone())
-                .unwrap_or_default();
+                .expect("Couldn't find Argument with name : path")
+                .value
+            {
+                ArgumentValue::String(value) => value.to_string(),
+                _ => panic!(),
+            };
             calls_for_handler
                 .lock()
                 .expect("calls lock should not be poisoned")

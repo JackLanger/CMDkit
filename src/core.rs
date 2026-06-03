@@ -7,7 +7,11 @@ use std::{
 
 use futures_channel::oneshot;
 
-use crate::{Argument, Command, StrategyError, Switch, cli::CommandCatalogue};
+use crate::cli::ValueType;
+use crate::{
+    Argument, ArgumentDefinition, ArgumentValue, Command, StrategyError, SwitchDefinition,
+    cli::CommandCatalogue,
+};
 
 /// Renders user-facing help output from registered command metadata.
 pub trait HelpRenderer: Send + Sync {
@@ -17,16 +21,16 @@ pub trait HelpRenderer: Send + Sync {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InvocationElement {
     Argument(Argument),
-    Switch(Switch),
+    Switch(String),
     Param(String),
 }
 
 /// InvocationArgs is a single-consumption execution envelope and is not guaranteed to remain intact after dispatch traversal.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct InvocationArgs {
     pub name: String,
     pub args: Vec<Argument>,
-    pub switches: Vec<Switch>,
+    pub switches: Vec<String>,
     pub params: Vec<String>,
     pub order: Vec<InvocationElement>,
     pub subcommand: Option<Box<InvocationArgs>>,
@@ -52,13 +56,16 @@ pub trait ArgumentInterpreter: Send + Sync {
 pub struct PlainTextArgumentInterpreter;
 
 impl PlainTextArgumentInterpreter {
-    fn find_declared_argument<'a>(command: &'a Command, flag: &str) -> Option<&'a Argument> {
+    fn find_declared_argument<'a>(
+        command: &'a Command,
+        flag: &str,
+    ) -> Option<&'a ArgumentDefinition> {
         command.metadata.arguments.iter().find(|argument| {
             argument.name == flag || argument.aliases.iter().any(|alias| alias == flag)
         })
     }
 
-    fn find_declared_switch<'a>(command: &'a Command, flag: &str) -> Option<&'a Switch> {
+    fn find_declared_switch<'a>(command: &'a Command, flag: &str) -> Option<&'a SwitchDefinition> {
         command
             .metadata
             .options
@@ -89,27 +96,21 @@ impl PlainTextArgumentInterpreter {
         command: &Command,
         arguments: &[Argument],
     ) -> Result<(), CMDKitError> {
-        for required in command
+        command
             .metadata
             .arguments
             .iter()
             .filter(|argument| argument.required)
-        {
-            let value = arguments
-                .iter()
-                .find(|argument| argument.name == required.name)
-                .and_then(|argument| argument.value.as_deref());
+            .for_each(|required| {
+                let value = arguments
+                    .iter()
+                    .find(|argument| argument.name == required.name);
 
-            if value.is_none_or(|value| value.trim().is_empty()) {
-                return Err(CMDKitError::StrategyExecution {
-                    command: command.metadata.name.clone(),
-                    source: StrategyError::invalid_arguments(format!(
-                        "missing value for required argument '--{}'",
-                        required.name
-                    )),
-                });
-            }
-        }
+                if value.is_none() {
+                    // we do not need to check if the value is empty. if value is empty we skip argument construction.
+                    panic!("missing value for required argument '--{}'", required.name);
+                }
+            });
 
         Ok(())
     }
@@ -160,11 +161,12 @@ impl PlainTextArgumentInterpreter {
             };
 
             if let Some((flag_name, inline_value)) = flag.split_once('=') {
-                if let Some(argument_decl) = Self::find_declared_argument(command, flag_name) {
-                    // this is required and by design. We use the original Arguments as Templates
-                    let argument = argument_decl.clone().set_value(inline_value.to_string());
-                    Self::upsert_argument(&mut arguments, argument.clone());
-                    order.push(InvocationElement::Argument(argument));
+                if let Some(declared_argument) = Self::find_declared_argument(command, flag_name) {
+                    let argument =
+                        Self::resolve_argument_value(declared_argument, &inline_value.to_string());
+                    let order_arg = argument.clone();
+                    Self::upsert_argument(&mut arguments, argument);
+                    order.push(InvocationElement::Argument(order_arg));
                     index += 1;
                     continue;
                 }
@@ -182,32 +184,35 @@ impl PlainTextArgumentInterpreter {
                 ));
             }
 
-            if let Some(argument_decl) = Self::find_declared_argument(command, flag) {
-                let Some(next) = args.get(index + 1) else {
+            if let Some(declared_argument) = Self::find_declared_argument(command, flag) {
+                let Some(argument_value) = args.get(index + 1) else {
                     return Err(Self::invalid_arguments(
                         command,
-                        format!("missing value for argument '--{}'", argument_decl.name),
+                        format!("missing value for argument '--{}'", declared_argument.name),
                     ));
                 };
 
-                if next.starts_with("--") || command.resolve_subcommand(next).is_some() {
+                if argument_value.starts_with("--")
+                    || command.resolve_subcommand(argument_value).is_some()
+                {
                     return Err(Self::invalid_arguments(
                         command,
-                        format!("missing value for argument '--{}'", argument_decl.name),
+                        format!("missing value for argument '--{}'", declared_argument.name),
                     ));
                 }
 
-                let argument = argument_decl.clone().set_value(next.clone());
-                Self::upsert_argument(&mut arguments, argument.clone());
-                order.push(InvocationElement::Argument(argument));
+                let argument = Self::resolve_argument_value(declared_argument, argument_value);
+                let order_arg = argument.clone();
+                Self::upsert_argument(&mut arguments, argument);
+                order.push(InvocationElement::Argument(order_arg));
                 index += 2;
                 continue;
             }
 
             if let Some(option_decl) = Self::find_declared_switch(command, flag) {
-                let switch = option_decl.clone();
+                let switch = &option_decl.name;
                 switches.push(switch.clone());
-                order.push(InvocationElement::Switch(switch));
+                order.push(InvocationElement::Switch(switch.clone()));
                 index += 1;
                 continue;
             }
@@ -228,6 +233,19 @@ impl PlainTextArgumentInterpreter {
             order,
             subcommand: None,
         })
+    }
+
+    fn resolve_argument_value(
+        declared_argument: &ArgumentDefinition,
+        argument_value: &String,
+    ) -> Argument {
+        let value = match declared_argument.value_type {
+            ValueType::Float => ArgumentValue::Float(argument_value.parse().unwrap()),
+            ValueType::Int => ArgumentValue::Int(argument_value.parse().unwrap()),
+            ValueType::Bool => ArgumentValue::Bool(argument_value.parse().unwrap()),
+            _ => ArgumentValue::String(argument_value.to_string()),
+        };
+        declared_argument.set_value(value)
     }
 }
 
@@ -543,7 +561,9 @@ impl CMDKit {
 
     fn render_help(&self, caller: &str) -> String {
         let registered_commands = self.get_all();
-        self.config.help_renderer.render(caller, &registered_commands[..])
+        self.config
+            .help_renderer
+            .render(caller, &registered_commands[..])
     }
 
     fn try_run_from_env(&self) -> Result<(), CMDKitError> {

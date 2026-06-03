@@ -5,9 +5,9 @@ pub mod cli;
 pub mod core;
 
 pub use cli::{
-    Argument, Command, CommandBuilder, CommandMetaData, CommandStrategy, FunctionStrategy,
-    StrategyError, StrategyErrorKind, SubcommandCatalog, SubcommandRouter, Switch, argument,
-    command, switch,
+    Argument, ArgumentDefinition, ArgumentValue, Command, CommandBuilder, CommandMetaData,
+    CommandStrategy, FunctionStrategy, StrategyError, StrategyErrorKind, SubcommandCatalog,
+    SubcommandRouter, SwitchDefinition, argument, command, switch,
 };
 pub use core::{
     ArgumentInterpreter, CMDKit, CMDKitBuilder, CMDKitError, CMDKitMaster, CoreConfig,
@@ -39,7 +39,9 @@ mod tests {
 
     #[test]
     fn wrapper_try_run_with_commands_propagates_missing_command_error() {
-        let result = CMDKit::builder().build().try_run_from_args(&["app".to_string()]);
+        let result = CMDKit::builder()
+            .build()
+            .try_run_from_args(&["app".to_string()]);
 
         match result {
             Err(CMDKitError::MissingCommand { help }) => {

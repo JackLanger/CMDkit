@@ -1,5 +1,5 @@
-use std::collections::{BTreeMap, BTreeSet};
 use super::Command;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Internal registry storage for command-to-command mappings.
 #[derive(Default, Clone)]

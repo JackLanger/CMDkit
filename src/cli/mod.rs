@@ -4,8 +4,10 @@ mod registry;
 mod strategy;
 
 pub use command::{
-    Argument, Command, CommandBuilder, CommandMetaData, Switch, argument, command, switch,
+    Argument, ArgumentDefinition, ArgumentValue, Command, CommandBuilder, CommandMetaData,
+    SwitchDefinition, ValueType, argument, argument_of_type, command, switch,
 };
+
 pub use error::{StrategyError, StrategyErrorKind};
 pub(crate) use registry::CommandCatalogue;
 pub use strategy::{CommandStrategy, FunctionStrategy, SubcommandCatalog, SubcommandRouter};

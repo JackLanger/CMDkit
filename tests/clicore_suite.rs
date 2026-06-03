@@ -1,12 +1,11 @@
 use std::sync::{Arc, Mutex};
 
 use cmdkit::{
-    Argument, ArgumentInterpreter, CMDKit, CMDKitError, Command, CommandStrategy,
+    Argument, ArgumentInterpreter, ArgumentValue, CMDKit, CMDKitError, Command, CommandStrategy,
     InvocationArgs, InvocationElement, PlainTextArgumentInterpreter, StrategyError,
-    StrategyErrorKind,
-    SubcommandRouter, Switch, argument, command, switch,
+    StrategyErrorKind, SubcommandRouter, argument, cli, command, switch,
 };
-type CallLog = Arc<Mutex<Vec<(Vec<Switch>, Vec<Argument>, Vec<String>)>>>;
+type CallLog = Arc<Mutex<Vec<(Vec<String>, Vec<Argument>, Vec<String>)>>>;
 
 struct RecorderStrategy {
     calls: CallLog,
@@ -35,15 +34,20 @@ fn build_recorder_functionality(
     Command::new(name, description, RecorderStrategy { calls, error })
 }
 
-fn has_switch(switches: &[Switch], name: &str) -> bool {
-    switches.iter().any(|switch| switch.name == name)
+fn has_switch(switches: &[String], name: &str) -> bool {
+    switches.iter().any(|switch| switch == name)
 }
 
 fn argument_value<'a>(arguments: &'a [Argument], name: &str) -> Option<&'a str> {
-    arguments
+    let value = &arguments
         .iter()
         .find(|argument| argument.name == name)
-        .and_then(|argument| argument.value.as_deref())
+        .expect("argument should be found in the strategy call log") // For test purposes, we expect the argument to be present
+        .value;
+    match value {
+        cmdkit::ArgumentValue::String(value) => Some(value.as_str()),
+        _ => None,
+    }
 }
 
 #[test]
@@ -567,7 +571,11 @@ fn interpreter_accepts_argument_aliases_and_uses_last_value_wins() {
     assert_eq!(guard.len(), 1);
     assert_eq!(guard[0].1.len(), 1);
     assert_eq!(guard[0].1[0].name, "path");
-    assert_eq!(guard[0].1[0].value.as_deref(), Some("second"));
+
+    match &guard[0].1[0].value {
+        ArgumentValue::String(value) => assert_eq!(value, "second"),
+        _ => panic!("expected value string"),
+    }
 }
 
 #[test]
@@ -592,6 +600,7 @@ fn independent_instances_do_not_share_registry_entries() {
 fn configured_argument_interpreter_can_drive_invocation() {
     struct FixedInterpreter;
 
+    use cli::ArgumentValue;
     impl ArgumentInterpreter for FixedInterpreter {
         fn interpret(
             &self,
@@ -600,13 +609,18 @@ fn configured_argument_interpreter_can_drive_invocation() {
         ) -> Result<cmdkit::InvocationArgs, CMDKitError> {
             Ok(cmdkit::InvocationArgs {
                 name: "echo".to_string(),
-                args: vec![argument("path", "path value").set_value("from-interpreter")],
-                switches: vec![switch("loud", "loud switch")],
+                args: vec![
+                    argument("path", "path value")
+                        .set_value(ArgumentValue::String("from-interpreter".to_string())),
+                ],
+                switches: vec!["loud".to_string(), "loud switch".to_string()],
                 params: vec!["tail".to_string()],
                 order: vec![
-                    InvocationElement::Switch(switch("loud", "loud switch")),
+                    InvocationElement::Switch("loud".to_string()),
+                    InvocationElement::Switch("loud switch".to_string()),
                     InvocationElement::Argument(
-                        argument("path", "path value").set_value("from-interpreter"),
+                        argument("path", "path value")
+                            .set_value(ArgumentValue::String("from-interpreter".to_string())),
                     ),
                     InvocationElement::Param("tail".to_string()),
                 ],
@@ -751,15 +765,15 @@ fn plain_text_interpreter_resolves_aliases_to_canonical_typed_metadata() {
 
     assert_eq!(invocation.name, "tool");
     assert_eq!(invocation.switches.len(), 1);
-    assert_eq!(invocation.switches[0].name, "verbose");
-    assert_eq!(invocation.switches[0].description, "verbose output");
-    assert_eq!(invocation.switches[0].aliases, vec!["v".to_string()]);
+    assert_eq!(invocation.switches[0], "verbose");
 
     assert_eq!(invocation.args.len(), 1);
     assert_eq!(invocation.args[0].name, "path");
-    assert_eq!(invocation.args[0].description, "path value");
-    assert_eq!(invocation.args[0].aliases, vec!["p".to_string()]);
-    assert_eq!(invocation.args[0].value.as_deref(), Some("src/lib.rs"));
+
+    match &invocation.args[0].value {
+        ArgumentValue::String(value) => assert_eq!(value, "src/lib.rs"),
+        _ => panic!("expected argument value to be a string"),
+    }
 }
 
 #[test]
@@ -792,32 +806,46 @@ fn plain_text_interpreter_moves_repeated_argument_to_latest_position() {
 
     assert_eq!(invocation.args.len(), 2);
     assert_eq!(invocation.args[0].name, "mode");
-    assert_eq!(invocation.args[0].value.as_deref(), Some("fast"));
+    match &invocation.args[0].value {
+        ArgumentValue::String(value) => assert_eq!(value, "fast"),
+        _ => panic!("expected argument value to be a string"),
+    }
+
     assert_eq!(invocation.args[1].name, "path");
-    assert_eq!(invocation.args[1].value.as_deref(), Some("second"));
+    match &invocation.args[1].value {
+        ArgumentValue::String(value) => assert_eq!(value, "second"),
+        _ => panic!("expected argument value to be a string"),
+    }
 
     assert_eq!(invocation.order.len(), 4);
+
     assert!(matches!(
         &invocation.order[0],
         InvocationElement::Argument(argument_decl)
-            if argument_decl.name == "path" && argument_decl.value.as_deref() == Some("first")
+        if argument_decl.name == "path" && get_value(&argument_decl.value) == "first"
     ));
     assert!(matches!(
         &invocation.order[1],
         InvocationElement::Argument(argument_decl)
-            if argument_decl.name == "mode" && argument_decl.value.as_deref() == Some("fast")
+            if argument_decl.name == "mode" && get_value(&argument_decl.value) == "fast"
     ));
     assert!(matches!(
         &invocation.order[2],
         InvocationElement::Argument(argument_decl)
-            if argument_decl.name == "path" && argument_decl.value.as_deref() == Some("second")
+            if argument_decl.name == "path" && get_value(&argument_decl.value) == "second"
     ));
     assert!(matches!(
         &invocation.order[3],
-        InvocationElement::Switch(switch_decl) if switch_decl.name == "verbose"
+        InvocationElement::Switch(switch_decl) if switch_decl == "verbose"
     ));
 }
 
+fn get_value(arg: &ArgumentValue) -> String {
+    match arg {
+        ArgumentValue::String(s) => s.to_string(),
+        _ => panic!("expected argument value to be an array"),
+    }
+}
 #[test]
 fn plain_text_interpreter_preserves_typed_argument_order() {
     let interpreter = PlainTextArgumentInterpreter;
@@ -854,12 +882,12 @@ fn plain_text_interpreter_preserves_typed_argument_order() {
     assert_eq!(invocation.order.len(), 2);
     assert!(matches!(
         &invocation.order[0],
-        InvocationElement::Switch(switch_decl) if switch_decl.name == "verbose"
+        InvocationElement::Switch(switch_decl) if switch_decl == "verbose"
     ));
     assert!(matches!(
         &invocation.order[1],
         InvocationElement::Argument(argument_decl)
-            if argument_decl.name == "path" && argument_decl.value.as_deref() == Some("src")
+            if argument_decl.name == "path" && get_value(&argument_decl.value) == "src"
     ));
 
     let child = invocation
@@ -869,12 +897,12 @@ fn plain_text_interpreter_preserves_typed_argument_order() {
     assert_eq!(child.params, vec!["tail".to_string()]);
     assert!(matches!(
         &child.order[0],
-        InvocationElement::Switch(switch_decl) if switch_decl.name == "force"
+        InvocationElement::Switch(switch_decl) if switch_decl == "force"
     ));
     assert!(matches!(
         &child.order[1],
         InvocationElement::Argument(argument_decl)
-            if argument_decl.name == "mode" && argument_decl.value.as_deref() == Some("fast")
+            if argument_decl.name == "mode" && get_value(&argument_decl.value) == "fast"
     ));
 }
 

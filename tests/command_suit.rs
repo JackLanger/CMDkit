@@ -1,11 +1,11 @@
 use std::sync::{Arc, Mutex};
 
-use cmdkit::{Argument, CMDKit, Switch, argument, command, switch};
+use cmdkit::{Argument, ArgumentValue, CMDKit, argument, command, switch};
 
-fn format_switches(switches: &[Switch]) -> String {
+fn format_switches(switches: &[String]) -> String {
     switches
         .iter()
-        .map(|switch| switch.name.clone())
+        .map(|switch| switch.clone())
         .collect::<Vec<String>>()
         .join(",")
 }
@@ -13,12 +13,11 @@ fn format_switches(switches: &[Switch]) -> String {
 fn format_arguments(arguments: &[Argument]) -> String {
     arguments
         .iter()
-        .map(|argument| {
-            format!(
-                "{}={}",
-                argument.name,
-                argument.value.clone().unwrap_or_default()
-            )
+        .map(|argument| match argument.value {
+            ArgumentValue::String(ref value) => format!("{}={value}", argument.name),
+            ArgumentValue::Int(value) => format!("{}={value}", argument.name),
+            ArgumentValue::Float(value) => format!("{}={value}", argument.name),
+            _ => argument.name.to_string(),
         })
         .collect::<Vec<String>>()
         .join(",")

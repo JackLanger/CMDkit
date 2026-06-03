@@ -1,8 +1,8 @@
+use crate::Argument;
+use crate::core::{InvocationArgs, InvocationElement};
 use std::{collections::BTreeMap, sync::Arc};
 
-use crate::core::{InvocationArgs, InvocationElement};
-
-use super::{Argument, Command, StrategyError, Switch};
+use super::{Command, StrategyError};
 
 /// Optional help-time capability exposed by strategies that can route to child strategies.
 pub trait SubcommandCatalog {
@@ -14,10 +14,7 @@ pub trait SubcommandCatalog {
 pub trait CommandStrategy: Send + Sync {
     /// Executes the strategy with parsed invocation data.
     /// Strategy implementations should validate argument viability internally.
-    fn execute(
-        &self,
-        invocation : InvocationArgs,
-    ) -> Result<(), StrategyError>;
+    fn execute(&self, invocation: InvocationArgs) -> Result<(), StrategyError>;
 
     /// Optional catalog exposure used by help renderers to discover nested command trees.
     fn subcommand_catalog(&self) -> Option<&dyn SubcommandCatalog> {
@@ -28,14 +25,14 @@ pub trait CommandStrategy: Send + Sync {
 /// Adapter that turns a function or closure into a [`CommandStrategy`].
 pub struct FunctionStrategy<F>
 where
-    F: Fn(Vec<Switch>, Vec<Argument>, Vec<String>) -> Result<(), StrategyError> + Send + Sync,
+    F: Fn(Vec<String>, Vec<Argument>, Vec<String>) -> Result<(), StrategyError> + Send + Sync,
 {
     runner: F,
 }
 
 impl<F> FunctionStrategy<F>
 where
-    F: Fn(Vec<Switch>, Vec<Argument>, Vec<String>) -> Result<(), StrategyError> + Send + Sync,
+    F: Fn(Vec<String>, Vec<Argument>, Vec<String>) -> Result<(), StrategyError> + Send + Sync,
 {
     pub fn new(runner: F) -> Self {
         Self { runner }
@@ -44,12 +41,9 @@ where
 
 impl<F> CommandStrategy for FunctionStrategy<F>
 where
-    F: Fn(Vec<Switch>, Vec<Argument>, Vec<String>) -> Result<(), StrategyError> + Send + Sync,
+    F: Fn(Vec<String>, Vec<Argument>, Vec<String>) -> Result<(), StrategyError> + Send + Sync,
 {
-    fn execute(
-        &self,
-        invocation : InvocationArgs,
-    ) -> Result<(), StrategyError> {
+    fn execute(&self, invocation: InvocationArgs) -> Result<(), StrategyError> {
         (self.runner)(invocation.switches, invocation.args, invocation.params)
     }
 }
@@ -113,10 +107,7 @@ impl SubcommandCatalog for SubcommandRouter {
 }
 
 impl CommandStrategy for SubcommandRouter {
-    fn execute(
-        &self,
-        invocation : InvocationArgs,
-    ) -> Result<(), StrategyError> {
+    fn execute(&self, invocation: InvocationArgs) -> Result<(), StrategyError> {
         let Some(subcommand_name) = invocation.params.first() else {
             return Err(StrategyError::invalid_arguments(format!(
                 "missing subcommand. available: {}",
@@ -162,10 +153,7 @@ impl FallbackSubcommandStrategy {
 }
 
 impl CommandStrategy for FallbackSubcommandStrategy {
-    fn execute(
-        &self,
-        invocation : InvocationArgs,
-    ) -> Result<(), StrategyError> {
+    fn execute(&self, invocation: InvocationArgs) -> Result<(), StrategyError> {
         if invocation.params.is_empty() {
             return self.strategy.execute(invocation);
         }

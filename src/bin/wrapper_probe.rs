@@ -1,4 +1,4 @@
-use cmdkit::{core::InvocationArgs, Command, CommandStrategy, StrategyError, CMDKit};
+use cmdkit::{CMDKit, Command, CommandStrategy, StrategyError, core::InvocationArgs};
 
 struct ProbeStrategy;
 

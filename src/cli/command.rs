@@ -1,5 +1,6 @@
-use std::{option::Option, sync::Arc};
 use crate::core::InvocationArgs;
+use std::fmt::Debug;
+use std::{option::Option, sync::Arc};
 
 use super::strategy::FallbackSubcommandStrategy;
 use super::{
@@ -8,7 +9,7 @@ use super::{
 
 /// Declarative value-taking option metadata.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Switch {
+pub struct SwitchDefinition {
     /// Canonical option name, for example: "path".
     pub name: String,
     /// Human-readable description for help output.
@@ -17,7 +18,7 @@ pub struct Switch {
     pub aliases: Vec<String>,
 }
 
-impl Switch {
+impl SwitchDefinition {
     /// Creates a value-taking option declaration.
     pub fn new(name: impl Into<String>, description: impl Into<String>) -> Self {
         Self {
@@ -35,7 +36,7 @@ impl Switch {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Argument {
+pub struct ArgumentDefinition {
     /// Canonical
     /// Argument name, for example: "verbose".
     pub name: String,
@@ -43,22 +44,57 @@ pub struct Argument {
     pub description: String,
     /// Alternative spellings accepted during parsing.
     pub aliases: Vec<String>,
-    /// Numeric payload that can be mapped to an enum or bit mask.
-    pub value: Option<String>,
     /// Whether this argument is required or optional.
     pub required: bool,
+
+    pub value_type: ValueType,
 }
 
-impl Argument {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ValueType {
+    String,
+    Bool,
+    Float,
+    Int,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ArgumentValue {
+    String(String),
+    Int(i64),
+    Bool(bool),
+    Float(f64),
+}
+
+impl Eq for ArgumentValue {}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Argument {
+    pub name: String,
+    pub value: ArgumentValue,
+}
+
+impl ArgumentDefinition {
     /// Creates a
     /// Argument declaration with the given numeric payload.
-    pub fn new(name: impl Into<String>, description: impl Into<String>) -> Self {
+    pub fn new(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        value_type: ValueType,
+    ) -> Self {
         Self {
             name: name.into(),
             description: description.into(),
             aliases: Vec::new(),
-            value: None,
             required: false,
+            value_type,
+        }
+    }
+
+    pub fn set_value(&self, value: ArgumentValue) -> Argument {
+        Argument {
+            name: self.name.clone(),
+            value,
         }
     }
 
@@ -66,12 +102,6 @@ impl Argument {
     /// Argument.
     pub fn with_aliases(mut self, aliases: Vec<impl Into<String>>) -> Self {
         self.aliases = aliases.into_iter().map(|s| s.into()).collect();
-        self
-    }
-
-    /// Sets the value for this argument.
-    pub fn set_value(mut self, value: impl Into<String>) -> Self {
-        self.value = Some(value.into());
         self
     }
 
@@ -96,10 +126,10 @@ pub struct CommandMetaData {
     /// Optional command examples shown in help output.
     pub examples: Vec<String>,
     /// Optional option/flag descriptions shown in help output.
-    pub options: Vec<Switch>,
+    pub options: Vec<SwitchDefinition>,
     /// Optional
     /// Argument/flag descriptions shown in help output.
-    pub arguments: Vec<Argument>,
+    pub arguments: Vec<ArgumentDefinition>,
     /// Optional aliases accepted by command discovery layers.
     pub aliases: Vec<String>,
 }
@@ -138,14 +168,14 @@ impl CommandMetaData {
     }
 
     /// Adds value-taking option definitions for this command.
-    pub fn with_options(mut self, options: Vec<Switch>) -> Self {
+    pub fn with_options(mut self, options: Vec<SwitchDefinition>) -> Self {
         self.options = options;
         self
     }
 
     /// Adds
     /// Argument/flag definitions for this command.
-    pub fn with_arguments(mut self, arguments: Vec<Argument>) -> Self {
+    pub fn with_arguments(mut self, arguments: Vec<ArgumentDefinition>) -> Self {
         self.arguments = arguments;
         self
     }
@@ -165,7 +195,6 @@ pub struct Command {
     strategy: Arc<dyn CommandStrategy>,
 }
 
-
 impl Command {
     /// Creates a command specification from any handler implementation type.
     pub fn new<S>(name: impl Into<String>, description: impl Into<String>, strategy: S) -> Self
@@ -180,16 +209,15 @@ impl Command {
 
     pub(crate) fn execute(&self, mut invocation: InvocationArgs) -> Result<(), StrategyError> {
         match invocation.subcommand.take() {
-            Some(subcommand) => {
-                self.resolve_subcommand(&subcommand.name)
-                    .ok_or_else(|| {
-                        StrategyError::invalid_arguments(format!(
-                            "unknown subcommand '{}'",
-                            subcommand.name
-                        ))
-                    })?
-                    .execute(*subcommand)
-            }
+            Some(subcommand) => self
+                .resolve_subcommand(&subcommand.name)
+                .ok_or_else(|| {
+                    StrategyError::invalid_arguments(format!(
+                        "unknown subcommand '{}'",
+                        subcommand.name
+                    ))
+                })?
+                .execute(*subcommand),
             None => self.strategy.execute(invocation),
         }
     }
@@ -202,7 +230,7 @@ impl Command {
     /// Creates a command specification directly from a function or closure handler.
     pub fn from_fn<F>(name: impl Into<String>, description: impl Into<String>, runner: F) -> Self
     where
-        F: Fn(Vec<Switch>, Vec<Argument>, Vec<String>) -> Result<(), StrategyError>
+        F: Fn(Vec<String>, Vec<Argument>, Vec<String>) -> Result<(), StrategyError>
             + Send
             + Sync
             + 'static,
@@ -231,13 +259,21 @@ pub fn command(name: impl Into<String>, description: impl Into<String>) -> Comma
 }
 
 /// creates a value-taking option declaration.
-pub fn argument(name: impl Into<String>, description: impl Into<String>) -> Argument {
-    Argument::new(name, description)
+pub fn argument(name: impl Into<String>, description: impl Into<String>) -> ArgumentDefinition {
+    ArgumentDefinition::new(name, description, ValueType::String)
+}
+
+pub fn argument_of_type(
+    name: impl Into<String>,
+    description: impl Into<String>,
+    value_type: ValueType,
+) -> ArgumentDefinition {
+    ArgumentDefinition::new(name, description, value_type)
 }
 
 /// creates a value-taking option declaration with the required flag set to true.
-pub fn switch(name: impl Into<String>, description: impl Into<String>) -> Switch {
-    Switch::new(name, description)
+pub fn switch(name: impl Into<String>, description: impl Into<String>) -> SwitchDefinition {
+    SwitchDefinition::new(name, description)
 }
 /// Fluent command builder that hides strategy implementation details.
 pub struct CommandBuilder {
@@ -268,7 +304,7 @@ impl CommandBuilder {
     /// Sets command strategy using a function/closure.
     pub fn handler_fn<F>(mut self, runner: F) -> Self
     where
-        F: Fn(Vec<Switch>, Vec<Argument>, Vec<String>) -> Result<(), StrategyError>
+        F: Fn(Vec<String>, Vec<Argument>, Vec<String>) -> Result<(), StrategyError>
             + Send
             + Sync
             + 'static,
@@ -305,14 +341,14 @@ impl CommandBuilder {
     }
 
     /// Adds option/flag description entries for this command.
-    pub fn with_options(mut self, options: Vec<Switch>) -> Self {
+    pub fn with_options(mut self, options: Vec<SwitchDefinition>) -> Self {
         self.metadata = self.metadata.with_options(options);
         self
     }
 
     /// Adds
     /// Argument/flag description entries for this command.
-    pub fn with_arguments(mut self, arguments: Vec<Argument>) -> Self {
+    pub fn with_arguments(mut self, arguments: Vec<ArgumentDefinition>) -> Self {
         self.metadata = self.metadata.with_arguments(arguments);
         self
     }
