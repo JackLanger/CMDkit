@@ -131,3 +131,15 @@ P4 (Optional)
     - Problem: the public handle currently exposes the underlying oneshot result shape, which is correct but a bit awkward for callers.
     - Scope: src/core.rs public async handle API + lib exports + tests.
     - Acceptance: callers can await a single-layer result type or helper wrapper without manually handling the internal oneshot cancellation shape.
+
+
+-- Inspect
+
+1.
+core-parse-command-clones — src/core.rs parse_command still clones commands, tokens, arguments, and switches while building InvocationArgs.
+2.
+strategy-router-dispatch-clones — src/cli/strategy.rs SubcommandRouter::resolve and recursive dispatch clone Command/InvocationArgs pieces during routing.
+3.
+registry-lookup-clones — src/cli/registry.rs get() and get_all() clone Command values; worth checking whether borrowed lookup is possible.
+4.
+catalog-merge-clones — src/cli/strategy.rs FallbackSubcommandStrategy::subcommands() clones and merges command catalogs; likely the biggest remaining aggregation hotspot.

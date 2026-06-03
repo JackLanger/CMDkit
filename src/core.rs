@@ -7,11 +7,11 @@ use std::{
 
 use futures_channel::oneshot;
 
-use crate::{Argument, Command, StrategyError, Switch, cli::CommandRegistry};
+use crate::{Argument, Command, StrategyError, Switch, cli::CommandCatalogue};
 
 /// Renders user-facing help output from registered command metadata.
 pub trait HelpRenderer: Send + Sync {
-    fn render(&self, caller: &str, registered_commands: &[Command]) -> String;
+    fn render(&self, caller: &str, registered_commands: &[&Command]) -> String;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -44,7 +44,7 @@ pub trait ArgumentInterpreter: Send + Sync {
     fn interpret(
         &self,
         arg: &[String],
-        registered_commands: &[Command],
+        registered_commands: &[&Command],
     ) -> Result<InvocationArgs, CMDKitError>;
 }
 
@@ -66,11 +66,11 @@ impl PlainTextArgumentInterpreter {
             .find(|option| option.name == flag || option.aliases.iter().any(|alias| alias == flag))
     }
 
-    fn resolve_command(commands: &[Command], token: &str) -> Option<Command> {
+    fn resolve_command<'a>(commands: &'a [&'a Command], token: &str) -> Option<&'a Command> {
         commands.iter().find_map(|command| {
             ((command.metadata.name == token)
                 || command.metadata.aliases.iter().any(|alias| alias == token))
-            .then(|| command.clone())
+            .then_some(*command)
         })
     }
 
@@ -161,6 +161,7 @@ impl PlainTextArgumentInterpreter {
 
             if let Some((flag_name, inline_value)) = flag.split_once('=') {
                 if let Some(argument_decl) = Self::find_declared_argument(command, flag_name) {
+                    // this is required and by design. We use the original Arguments as Templates
                     let argument = argument_decl.clone().set_value(inline_value.to_string());
                     Self::upsert_argument(&mut arguments, argument.clone());
                     order.push(InvocationElement::Argument(argument));
@@ -234,7 +235,7 @@ impl ArgumentInterpreter for PlainTextArgumentInterpreter {
     fn interpret(
         &self,
         arg: &[String],
-        registered_commands: &[Command],
+        registered_commands: &[&Command],
     ) -> Result<InvocationArgs, CMDKitError> {
         let Some(command_name) = arg.first() else {
             return Err(CMDKitError::MissingCommand {
@@ -258,7 +259,7 @@ impl ArgumentInterpreter for PlainTextArgumentInterpreter {
 pub struct PlainTextHelpRenderer;
 
 impl HelpRenderer for PlainTextHelpRenderer {
-    fn render(&self, caller: &str, registered_commands: &[Command]) -> String {
+    fn render(&self, caller: &str, registered_commands: &[&Command]) -> String {
         fn render_recursive(command: &Command, depth: usize, path: String, out: &mut Vec<String>) {
             let indent = "  ".repeat(depth);
             out.push(format!(
@@ -452,7 +453,7 @@ impl Error for CMDKitError {
 /// Each [`CMDKit`] owns a lazily initialized command registry and can be reused
 /// across multiple invocations without relying on process-global mutable state.
 pub struct CMDKit {
-    registry: CommandRegistry,
+    registry: CommandCatalogue,
     config: CoreConfig,
 }
 
@@ -463,12 +464,12 @@ impl CMDKit {
     }
 
     /// Retrieves a registered command by name.
-    pub fn get(&self, name: &str) -> Option<Command> {
+    pub fn get(&self, name: &str) -> Option<&Command> {
         self.registry.get(name)
     }
 
     /// Returns all currently registered commands.
-    pub fn get_all(&self) -> Vec<Command> {
+    pub fn get_all(&self) -> Vec<&Command> {
         self.registry.get_all()
     }
 
@@ -520,11 +521,11 @@ impl CMDKit {
         let invocation = self
             .config
             .argument_interpreter
-            .interpret(args.get(1..).unwrap_or(&[]), &registered_commands)
+            .interpret(args.get(1..).unwrap_or(&[]), &registered_commands[..])
             .map_err(|error| self.attach_help(error, &binary))?;
 
         let command = self
-            .resolve_registered_command(&registered_commands, &invocation.name)
+            .resolve_registered_command(&registered_commands[..], &invocation.name)
             .ok_or_else(|| CMDKitError::UnknownCommand {
                 command: invocation.name.clone(),
                 help: self.render_help(&binary),
@@ -541,7 +542,8 @@ impl CMDKit {
     }
 
     fn render_help(&self, caller: &str) -> String {
-        self.config.help_renderer.render(caller, &self.get_all())
+        let registered_commands = self.get_all();
+        self.config.help_renderer.render(caller, &registered_commands[..])
     }
 
     fn try_run_from_env(&self) -> Result<(), CMDKitError> {
@@ -562,18 +564,22 @@ impl CMDKit {
         }
     }
 
-    fn resolve_registered_command(&self, commands: &[Command], name: &str) -> Option<Command> {
+    fn resolve_registered_command<'a>(
+        &self,
+        commands: &'a [&'a Command],
+        name: &str,
+    ) -> Option<&'a Command> {
         commands.iter().find_map(|command| {
             ((command.metadata.name == name)
                 || command.metadata.aliases.iter().any(|alias| alias == name))
-            .then(|| command.clone())
+            .then_some(*command)
         })
     }
 }
 
 pub struct CMDKitBuilder {
     config: CoreConfig,
-    registry: CommandRegistry,
+    registry: CommandCatalogue,
 }
 
 impl CMDKitBuilder {
@@ -688,7 +694,7 @@ pub struct CMDKitMaster {
 }
 
 impl CMDKitMaster {
-    fn new(registry: CommandRegistry, config: CoreConfig, worker_count: usize) -> Self {
+    fn new(registry: CommandCatalogue, config: CoreConfig, worker_count: usize) -> Self {
         let (submit_tx, submit_rx) = mpsc::channel::<QueuedInvocation>();
         let shared_rx = Arc::new(Mutex::new(submit_rx));
 

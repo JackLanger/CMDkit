@@ -596,7 +596,7 @@ fn configured_argument_interpreter_can_drive_invocation() {
         fn interpret(
             &self,
             _arg: &[String],
-            _registered_commands: &[Command],
+            _registered_commands: &[&Command],
         ) -> Result<cmdkit::InvocationArgs, CMDKitError> {
             Ok(cmdkit::InvocationArgs {
                 name: "echo".to_string(),
@@ -650,7 +650,7 @@ fn configured_argument_interpreter_rejects_unresolvable_subcommand_path() {
         fn interpret(
             &self,
             _arg: &[String],
-            _registered_commands: &[Command],
+            _registered_commands: &[&Command],
         ) -> Result<cmdkit::InvocationArgs, CMDKitError> {
             Ok(cmdkit::InvocationArgs {
                 name: "echo".to_string(),
@@ -745,7 +745,7 @@ fn plain_text_interpreter_resolves_aliases_to_canonical_typed_metadata() {
                 "--p".to_string(),
                 "src/lib.rs".to_string(),
             ],
-            &[root],
+            &[&root],
         )
         .expect("interpreter should resolve aliases using declared metadata");
 
@@ -786,7 +786,7 @@ fn plain_text_interpreter_moves_repeated_argument_to_latest_position() {
                 "second".to_string(),
                 "--verbose".to_string(),
             ],
-            &[root],
+            &[&root],
         )
         .expect("interpreter should keep the latest argument occurrence");
 
@@ -846,7 +846,7 @@ fn plain_text_interpreter_preserves_typed_argument_order() {
                 "--mode=fast".to_string(),
                 "tail".to_string(),
             ],
-            &[root],
+            &[&root],
         )
         .expect("interpreter should parse argv-style input");
 

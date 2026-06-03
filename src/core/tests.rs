@@ -9,7 +9,7 @@ use crate::{
 struct MarkerHelpRenderer;
 
 impl crate::core::HelpRenderer for MarkerHelpRenderer {
-    fn render(&self, caller: &str, _registered_commands: &[Command]) -> String {
+    fn render(&self, caller: &str, _registered_commands: &[&Command]) -> String {
         format!("marker-help:{caller}")
     }
 }
@@ -22,7 +22,7 @@ impl crate::core::ArgumentInterpreter for FixedInterpreter {
     fn interpret(
         &self,
         _arg: &[String],
-        _registered_commands: &[Command],
+        _registered_commands: &[&Command],
     ) -> Result<InvocationArgs, CMDKitError> {
         Ok(InvocationArgs {
             name: self.command_name.clone(),

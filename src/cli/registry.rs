@@ -1,27 +1,25 @@
 use std::collections::{BTreeMap, BTreeSet};
-
 use super::Command;
 
 /// Internal registry storage for command-to-command mappings.
 #[derive(Default, Clone)]
-pub(crate) struct CommandRegistry {
+pub(crate) struct CommandCatalogue {
     commands: BTreeMap<String, Command>,
     aliases: BTreeMap<String, String>,
 }
 
-impl CommandRegistry {
-    pub(crate) fn get(&self, name: &str) -> Option<Command> {
+impl CommandCatalogue {
+    pub(crate) fn get(&self, name: &str) -> Option<&Command> {
         if let Some(command) = self.commands.get(name) {
-            return Some(command.clone());
+            return Some(command);
         }
 
         self.aliases
             .get(name)
             .and_then(|canonical| self.commands.get(canonical))
-            .cloned()
     }
 
-    pub(crate) fn register(&mut self, command: Command) -> Result<&mut CommandRegistry, String> {
+    pub(crate) fn register(&mut self, command: Command) -> Result<&mut CommandCatalogue, String> {
         self.validate_alias_collisions(&command)?;
 
         let command_name = command.metadata.name.clone();
@@ -40,8 +38,8 @@ impl CommandRegistry {
         Ok(self)
     }
 
-    pub(crate) fn get_all(&self) -> Vec<Command> {
-        self.commands.values().cloned().collect()
+    pub(crate) fn get_all(&self) -> Vec<&Command> {
+        self.commands.values().collect()
     }
 
     fn validate_alias_collisions(&self, command: &Command) -> Result<(), String> {
