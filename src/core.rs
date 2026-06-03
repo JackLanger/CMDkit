@@ -96,21 +96,16 @@ impl PlainTextArgumentInterpreter {
         command: &Command,
         arguments: &[Argument],
     ) -> Result<(), CMDKitError> {
-        command
-            .metadata
-            .arguments
-            .iter()
-            .filter(|argument| argument.required)
-            .for_each(|required| {
-                let value = arguments
-                    .iter()
-                    .find(|argument| argument.name == required.name);
+        for required in command.metadata.arguments.iter().filter(|arg| arg.required) {
+            let value = arguments.iter().find(|argument| argument.name == required.name);
 
-                if value.is_none() {
-                    // we do not need to check if the value is empty. if value is empty we skip argument construction.
-                    panic!("missing value for required argument '--{}'", required.name);
-                }
-            });
+            if value.is_none() {
+                return Err(Self::invalid_arguments(
+                    command,
+                    format!("missing value for required argument '--{}'", required.name),
+                ));
+            }
+        }
 
         Ok(())
     }
@@ -162,8 +157,13 @@ impl PlainTextArgumentInterpreter {
 
             if let Some((flag_name, inline_value)) = flag.split_once('=') {
                 if let Some(declared_argument) = Self::find_declared_argument(command, flag_name) {
+                    if inline_value.is_empty() {
+                        // Skip creating argument for empty values; let validation catch it
+                        index += 1;
+                        continue;
+                    }
                     let argument =
-                        Self::resolve_argument_value(declared_argument, &inline_value.to_string());
+                        Self::convert_to_argument_value(declared_argument, &inline_value.to_string());
                     let order_arg = argument.clone();
                     Self::upsert_argument(&mut arguments, argument);
                     order.push(InvocationElement::Argument(order_arg));
@@ -186,22 +186,27 @@ impl PlainTextArgumentInterpreter {
 
             if let Some(declared_argument) = Self::find_declared_argument(command, flag) {
                 let Some(argument_value) = args.get(index + 1) else {
-                    return Err(Self::invalid_arguments(
-                        command,
-                        format!("missing value for argument '--{}'", declared_argument.name),
-                    ));
+                    let msg = if declared_argument.required {
+                        format!("missing value for required argument '--{}'", declared_argument.name)
+                    } else {
+                        format!("missing value for argument '--{}'", declared_argument.name)
+                    };
+                    return Err(Self::invalid_arguments(command, msg));
                 };
 
-                if argument_value.starts_with("--")
+                if argument_value.is_empty()
+                    || argument_value.starts_with("--")
                     || command.resolve_subcommand(argument_value).is_some()
                 {
-                    return Err(Self::invalid_arguments(
-                        command,
-                        format!("missing value for argument '--{}'", declared_argument.name),
-                    ));
+                    let msg = if declared_argument.required {
+                        format!("missing value for required argument '--{}'", declared_argument.name)
+                    } else {
+                        format!("missing value for argument '--{}'", declared_argument.name)
+                    };
+                    return Err(Self::invalid_arguments(command, msg));
                 }
 
-                let argument = Self::resolve_argument_value(declared_argument, argument_value);
+                let argument = Self::convert_to_argument_value(declared_argument, argument_value);
                 let order_arg = argument.clone();
                 Self::upsert_argument(&mut arguments, argument);
                 order.push(InvocationElement::Argument(order_arg));
@@ -235,7 +240,7 @@ impl PlainTextArgumentInterpreter {
         })
     }
 
-    fn resolve_argument_value(
+    fn convert_to_argument_value(
         declared_argument: &ArgumentDefinition,
         argument_value: &String,
     ) -> Argument {
